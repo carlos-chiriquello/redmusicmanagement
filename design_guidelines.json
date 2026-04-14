@@ -1,0 +1,131 @@
+{
+  "theme": "light",
+  "archetype": "Swiss & High-Contrast Custom",
+  "archetype_reasoning": "A clean, functional, minimalist interface focused on management/dashboard capabilities, elevated by the striking, custom red palette provided by the user. Generous whitespace and 'Montserrat' typography ensure clarity and modern feel.",
+  "colors": {
+    "background": {
+      "primary": "#ffffff",
+      "secondary": "#fcf7f6",
+      "tertiary": "#f7e1e1"
+    },
+    "text": {
+      "primary": "#111111",
+      "secondary": "#4b5563",
+      "muted": "#6b7280",
+      "on_brand": "#ffffff"
+    },
+    "brand": {
+      "primary": "#c72137",
+      "primary_hover": "#cf3f57",
+      "secondary": "#c92041",
+      "highlight": "#ecb7bb",
+      "muted": "#f7e1e1"
+    },
+    "border": {
+      "default": "#e28b95",
+      "muted": "#d8667680",
+      "light": "#f7e1e1"
+    },
+    "status": {
+      "success": "#10b981",
+      "warning": "#f59e0b",
+      "error": "#ef4444",
+      "info": "#3b82f6"
+    }
+  },
+  "typography": {
+    "global_font": "Montserrat, sans-serif",
+    "headings": {
+      "font_family": "Montserrat",
+      "weight": "700",
+      "tracking": "tracking-tight"
+    },
+    "body": {
+      "font_family": "Montserrat",
+      "weight": "400",
+      "tracking": "tracking-normal"
+    },
+    "scales": {
+      "h1": "text-3xl md:text-4xl font-bold tracking-tight text-[#111111]",
+      "h2": "text-2xl md:text-3xl font-semibold tracking-tight text-[#111111]",
+      "h3": "text-xl md:text-2xl font-semibold tracking-tight text-[#111111]",
+      "h4": "text-lg font-medium text-[#111111]",
+      "body": "text-base text-[#4b5563]",
+      "small": "text-sm text-[#6b7280]"
+    }
+  },
+  "spacing_and_layout": {
+    "philosophy": "Generous spacing. Bento grid for dashboard, Control Room grid for lists/schedules. Clean separation via whitespace rather than heavy borders.",
+    "container_padding": "p-6 md:p-8",
+    "section_gap": "gap-8 md:gap-12",
+    "card_padding": "p-6",
+    "sidebar": "w-64 bg-[#ffffff] border-r border-[#e28b95]/30 flex flex-col justify-between hidden md:flex",
+    "header": "h-16 bg-[#ffffff] border-b border-[#e28b95]/30 flex items-center justify-between px-6 md:px-8",
+    "grid_dashboard": "grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6",
+    "grid_bento": "grid grid-cols-1 md:grid-cols-3 lg:grid-cols-4 gap-6"
+  },
+  "components": {
+    "buttons": {
+      "primary": "bg-[#c72137] text-white hover:bg-[#cf3f57] font-medium rounded-md px-4 py-2 transition-colors",
+      "secondary": "bg-[#f7e1e1] text-[#c72137] hover:bg-[#ecb7bb] font-medium rounded-md px-4 py-2 transition-colors",
+      "outline": "border border-[#e28b95] text-[#c72137] hover:bg-[#fcf7f6] font-medium rounded-md px-4 py-2 transition-colors"
+    },
+    "cards": {
+      "base": "bg-[#ffffff] rounded-xl border border-[#e28b95]/20 shadow-sm overflow-hidden",
+      "highlighted": "bg-[#fcf7f6] rounded-xl border border-[#e28b95]/40 shadow-sm"
+    },
+    "badges": {
+      "base": "inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium",
+      "brand": "bg-[#f7e1e1] text-[#c72137]",
+      "neutral": "bg-gray-100 text-gray-800",
+      "success": "bg-green-100 text-green-800"
+    },
+    "inputs": {
+      "base": "block w-full rounded-md border border-[#e28b95]/40 bg-white px-3 py-2 text-sm placeholder-gray-400 focus:border-[#c72137] focus:ring-[#c72137]/20 focus:outline-none focus:ring-2 transition-shadow"
+    },
+    "tables": {
+      "header": "bg-[#fcf7f6] text-left text-xs font-medium text-gray-500 uppercase tracking-wider",
+      "row": "border-b border-[#e28b95]/10 hover:bg-[#fcf7f6]/50 transition-colors"
+    }
+  },
+  "media": {
+    "images": {
+      "brand_logo": {
+        "url": "https://customer-assets.emergentagent.com/job_12820478-844c-49f1-b6bd-7ca7ece32718/artifacts/wn18b1ap_Logomarca-Babecue.png",
+        "category": "logo",
+        "description": "Red Music / Logomarca Babecue provided by user. Use in Sidebar top and Header left."
+      },
+      "avatar_1": {
+        "url": "https://images.unsplash.com/photo-1623088084753-be956b45945b?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NTYxODF8MHwxfHNlYXJjaHwyfHxzaW5nZXIlMjBwb3J0cmFpdHxlbnwwfHx8fDE3NzYxNzE2Mjd8MA&ixlib=rb-4.1.0&q=85",
+        "category": "avatar",
+        "description": "Male singer portrait for volunteer management list"
+      },
+      "avatar_2": {
+        "url": "https://images.unsplash.com/photo-1757409975427-9d1a2fc0e01b?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NTYxODF8MHwxfHNlYXJjaHwzfHxzaW5nZXIlMjBwb3J0cmFpdHxlbnwwfHx8fDE3NzYxNzE2Mjd8MA&ixlib=rb-4.1.0&q=85",
+        "category": "avatar",
+        "description": "Female singer portrait outdoors for volunteer list"
+      },
+      "avatar_3": {
+        "url": "https://images.pexels.com/photos/29268106/pexels-photo-29268106.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940",
+        "category": "avatar",
+        "description": "Young male singer in studio for volunteer management list"
+      },
+      "worship_band_bg": {
+        "url": "https://images.pexels.com/photos/12044265/pexels-photo-12044265.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940",
+        "category": "background",
+        "description": "Worship band performing on stage. Can be used for login screen or empty states."
+      }
+    }
+  },
+  "modules_instructions": {
+    "dashboard": "Focus on metrics cards (Volunteers, Schedules, Burnout alerts). Use generous spacing. Cards should use the #fcf7f6 background for highlights or white with #e28b95/20 borders.",
+    "volunteers": "List/Grid view of volunteers with avatars, tags for instruments/phases, and status badges (#f7e1e1 for active/brand).",
+    "schedules": "Calendar or list view. Emphasize confirmation status.",
+    "song_bank": "List of songs with tags for key, BPM. Clean tabular data.",
+    "setlists": "Drag and drop or ordered list UI with filters.",
+    "general": "The system should have a sidebar menu with the logo and links to modules. Utilize Montserrat for all typography and apply the precise colors requested."
+  },
+  "testing": {
+    "attributes": "All interactive elements MUST include a `data-testid` attribute (e.g., `data-testid='volunteer-add-button'`, `data-testid='dashboard-metrics-card'`)."
+  }
+}
