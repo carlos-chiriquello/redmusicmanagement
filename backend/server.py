@@ -1,72 +1,616 @@
-from fastapi import FastAPI, APIRouter
 from dotenv import load_dotenv
-from starlette.middleware.cors import CORSMiddleware
-from motor.motor_asyncio import AsyncIOMotorClient
-import os
-import logging
 from pathlib import Path
-from pydantic import BaseModel, Field, ConfigDict
-from typing import List
-import uuid
-from datetime import datetime, timezone
-
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
 
-# MongoDB connection
+from fastapi import FastAPI, APIRouter, HTTPException, Request, Response, Depends, File, UploadFile, status
+from fastapi.responses import JSONResponse
+from starlette.middleware.cors import CORSMiddleware
+from motor.motor_asyncio import AsyncIOMotorClient
+import os
+import logging
+from pydantic import BaseModel, Field, ConfigDict, EmailStr
+from typing import List, Optional
+import uuid
+from datetime import datetime, timezone, timedelta
+import bcrypt
+import jwt
+from bson import ObjectId
+import asyncio
+import resend
+from io import BytesIO
+import base64
+
 mongo_url = os.environ['MONGO_URL']
 client = AsyncIOMotorClient(mongo_url)
 db = client[os.environ['DB_NAME']]
 
-# Create the main app without a prefix
 app = FastAPI()
-
-# Create a router with the /api prefix
 api_router = APIRouter(prefix="/api")
 
+JWT_ALGORITHM = "HS256"
 
-# Define Models
-class StatusCheck(BaseModel):
-    model_config = ConfigDict(extra="ignore")  # Ignore MongoDB's _id field
+def get_jwt_secret() -> str:
+    return os.environ["JWT_SECRET"]
+
+def hash_password(password: str) -> str:
+    salt = bcrypt.gensalt()
+    hashed = bcrypt.hashpw(password.encode("utf-8"), salt)
+    return hashed.decode("utf-8")
+
+def verify_password(plain_password: str, hashed_password: str) -> bool:
+    return bcrypt.checkpw(plain_password.encode("utf-8"), hashed_password.encode("utf-8"))
+
+def create_access_token(user_id: str, email: str, role: str) -> str:
+    payload = {"sub": user_id, "email": email, "role": role, "exp": datetime.now(timezone.utc) + timedelta(minutes=15), "type": "access"}
+    return jwt.encode(payload, get_jwt_secret(), algorithm=JWT_ALGORITHM)
+
+def create_refresh_token(user_id: str) -> str:
+    payload = {"sub": user_id, "exp": datetime.now(timezone.utc) + timedelta(days=7), "type": "refresh"}
+    return jwt.encode(payload, get_jwt_secret(), algorithm=JWT_ALGORITHM)
+
+async def get_current_user(request: Request) -> dict:
+    token = request.cookies.get("access_token")
+    if not token:
+        auth_header = request.headers.get("Authorization", "")
+        if auth_header.startswith("Bearer "):
+            token = auth_header[7:]
+    if not token:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    try:
+        payload = jwt.decode(token, get_jwt_secret(), algorithms=[JWT_ALGORITHM])
+        if payload.get("type") != "access":
+            raise HTTPException(status_code=401, detail="Invalid token type")
+        user = await db.users.find_one({"_id": ObjectId(payload["sub"])})
+        if not user:
+            raise HTTPException(status_code=401, detail="User not found")
+        user["_id"] = str(user["_id"])
+        user.pop("password_hash", None)
+        return user
+    except jwt.ExpiredSignatureError:
+        raise HTTPException(status_code=401, detail="Token expired")
+    except jwt.InvalidTokenError:
+        raise HTTPException(status_code=401, detail="Invalid token")
+
+class RegisterRequest(BaseModel):
+    email: EmailStr
+    password: str
+    name: str
+    role: Optional[str] = "Voluntário"
+
+class LoginRequest(BaseModel):
+    email: EmailStr
+    password: str
+
+class VolunteerCreate(BaseModel):
+    name: str
+    birth_date: str
+    email: EmailStr
+    phone: str
+    photo_url: Optional[str] = ""
+    instruments: List[str] = []
+    functions: List[str] = []
+    phase: str = "Em Teste"
+    status: str = "Ativo"
+    tags: List[str] = []
+
+class VolunteerUpdate(BaseModel):
+    name: Optional[str] = None
+    birth_date: Optional[str] = None
+    email: Optional[EmailStr] = None
+    phone: Optional[str] = None
+    photo_url: Optional[str] = None
+    instruments: Optional[List[str]] = None
+    functions: Optional[List[str]] = None
+    phase: Optional[str] = None
+    status: Optional[str] = None
+    tags: Optional[List[str]] = None
+
+class UnavailabilityDate(BaseModel):
+    date: str
+    reason: Optional[str] = ""
+
+class SongCreate(BaseModel):
+    name: str
+    original_key: str
+    bpm: Optional[int] = None
+    tempo: Optional[str] = ""
+    tags: List[str] = []
+    links: List[str] = []
+    sheet_music_url: Optional[str] = ""
+    notes: Optional[str] = ""
+
+class SongUpdate(BaseModel):
+    name: Optional[str] = None
+    original_key: Optional[str] = None
+    bpm: Optional[int] = None
+    tempo: Optional[str] = None
+    tags: Optional[List[str]] = None
+    links: Optional[List[str]] = None
+    sheet_music_url: Optional[str] = None
+    notes: Optional[str] = None
+
+class ScheduleCreate(BaseModel):
+    date: str
+    time: str
+    name: str
+
+class ScheduleUpdate(BaseModel):
+    date: Optional[str] = None
+    time: Optional[str] = None
+    name: Optional[str] = None
+
+class ScheduleMemberAdd(BaseModel):
+    volunteer_id: str
+    function: str
+
+class ScheduleMemberUpdate(BaseModel):
+    confirmation_status: str
+
+class SetlistSongAdd(BaseModel):
+    song_id: str
+    key_for_this_event: Optional[str] = ""
+    main_vocal_volunteer_id: Optional[str] = ""
+    order: int
+
+class NotificationRequest(BaseModel):
+    recipient_email: Optional[EmailStr] = None
+    recipient_phone: Optional[str] = None
+    subject: str
+    message: str
+    channel: str
+
+class ChatMessageCreate(BaseModel):
+    to_user_id: str
+    message: str
+
+@api_router.post("/auth/register")
+async def register(request: RegisterRequest, response: Response):
+    email_lower = request.email.lower()
+    existing = await db.users.find_one({"email": email_lower})
+    if existing:
+        raise HTTPException(status_code=400, detail="Email already registered")
     
-    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
-    client_name: str
-    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
-
-class StatusCheckCreate(BaseModel):
-    client_name: str
-
-# Add your routes to the router instead of directly to app
-@api_router.get("/")
-async def root():
-    return {"message": "Hello World"}
-
-@api_router.post("/status", response_model=StatusCheck)
-async def create_status_check(input: StatusCheckCreate):
-    status_dict = input.model_dump()
-    status_obj = StatusCheck(**status_dict)
+    hashed = hash_password(request.password)
+    user_doc = {
+        "email": email_lower,
+        "password_hash": hashed,
+        "name": request.name,
+        "role": request.role,
+        "created_at": datetime.now(timezone.utc)
+    }
+    result = await db.users.insert_one(user_doc)
+    user_id = str(result.inserted_id)
     
-    # Convert to dict and serialize datetime to ISO string for MongoDB
-    doc = status_obj.model_dump()
-    doc['timestamp'] = doc['timestamp'].isoformat()
+    access_token = create_access_token(user_id, email_lower, request.role)
+    refresh_token = create_refresh_token(user_id)
     
-    _ = await db.status_checks.insert_one(doc)
-    return status_obj
+    response.set_cookie(key="access_token", value=access_token, httponly=True, secure=False, samesite="lax", max_age=900, path="/")
+    response.set_cookie(key="refresh_token", value=refresh_token, httponly=True, secure=False, samesite="lax", max_age=604800, path="/")
+    
+    return {"id": user_id, "email": email_lower, "name": request.name, "role": request.role}
 
-@api_router.get("/status", response_model=List[StatusCheck])
-async def get_status_checks():
-    # Exclude MongoDB's _id field from the query results
-    status_checks = await db.status_checks.find({}, {"_id": 0}).to_list(1000)
+@api_router.post("/auth/login")
+async def login(request: LoginRequest, response: Response):
+    email_lower = request.email.lower()
+    user = await db.users.find_one({"email": email_lower})
+    if not user:
+        raise HTTPException(status_code=401, detail="Invalid credentials")
     
-    # Convert ISO string timestamps back to datetime objects
-    for check in status_checks:
-        if isinstance(check['timestamp'], str):
-            check['timestamp'] = datetime.fromisoformat(check['timestamp'])
+    if not verify_password(request.password, user["password_hash"]):
+        raise HTTPException(status_code=401, detail="Invalid credentials")
     
-    return status_checks
+    user_id = str(user["_id"])
+    access_token = create_access_token(user_id, email_lower, user.get("role", "Voluntário"))
+    refresh_token = create_refresh_token(user_id)
+    
+    response.set_cookie(key="access_token", value=access_token, httponly=True, secure=False, samesite="lax", max_age=900, path="/")
+    response.set_cookie(key="refresh_token", value=refresh_token, httponly=True, secure=False, samesite="lax", max_age=604800, path="/")
+    
+    return {"id": user_id, "email": email_lower, "name": user.get("name", ""), "role": user.get("role", "Voluntário")}
 
-# Include the router in the main app
+@api_router.post("/auth/logout")
+async def logout(response: Response, current_user: dict = Depends(get_current_user)):
+    response.delete_cookie("access_token", path="/")
+    response.delete_cookie("refresh_token", path="/")
+    return {"message": "Logged out successfully"}
+
+@api_router.get("/auth/me")
+async def get_me(current_user: dict = Depends(get_current_user)):
+    return current_user
+
+@api_router.post("/volunteers")
+async def create_volunteer(volunteer: VolunteerCreate, current_user: dict = Depends(get_current_user)):
+    from dateutil import parser
+    birth_date_obj = parser.parse(volunteer.birth_date)
+    if birth_date_obj.tzinfo is None:
+        birth_date_obj = birth_date_obj.replace(tzinfo=timezone.utc)
+    age = (datetime.now(timezone.utc) - birth_date_obj).days // 365
+    
+    vol_doc = volunteer.model_dump()
+    vol_doc["id"] = str(uuid.uuid4())
+    vol_doc["age"] = age
+    vol_doc["unavailability_dates"] = []
+    vol_doc["created_at"] = datetime.now(timezone.utc)
+    
+    result = await db.volunteers.insert_one(vol_doc)
+    vol_doc.pop("_id", None)
+    return vol_doc
+
+@api_router.get("/volunteers")
+async def get_volunteers(current_user: dict = Depends(get_current_user)):
+    volunteers = await db.volunteers.find({}, {"_id": 0}).to_list(1000)
+    for vol in volunteers:
+        if "id" not in vol and "_id" in vol:
+            vol["id"] = str(vol["_id"])
+            vol.pop("_id", None)
+    return volunteers
+
+@api_router.get("/volunteers/{volunteer_id}")
+async def get_volunteer(volunteer_id: str, current_user: dict = Depends(get_current_user)):
+    volunteer = await db.volunteers.find_one({"id": volunteer_id}, {"_id": 0})
+    if not volunteer:
+        raise HTTPException(status_code=404, detail="Volunteer not found")
+    return volunteer
+
+@api_router.put("/volunteers/{volunteer_id}")
+async def update_volunteer(volunteer_id: str, updates: VolunteerUpdate, current_user: dict = Depends(get_current_user)):
+    update_data = {k: v for k, v in updates.model_dump().items() if v is not None}
+    
+    if "birth_date" in update_data:
+        from dateutil import parser
+        birth_date_obj = parser.parse(update_data["birth_date"])
+        if birth_date_obj.tzinfo is None:
+            birth_date_obj = birth_date_obj.replace(tzinfo=timezone.utc)
+        age = (datetime.now(timezone.utc) - birth_date_obj).days // 365
+        update_data["age"] = age
+    
+    if update_data:
+        await db.volunteers.update_one({"id": volunteer_id}, {"$set": update_data})
+    
+    updated = await db.volunteers.find_one({"id": volunteer_id}, {"_id": 0})
+    return updated
+
+@api_router.delete("/volunteers/{volunteer_id}")
+async def delete_volunteer(volunteer_id: str, current_user: dict = Depends(get_current_user)):
+    result = await db.volunteers.delete_one({"id": volunteer_id})
+    if result.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Volunteer not found")
+    return {"message": "Volunteer deleted successfully"}
+
+@api_router.post("/volunteers/{volunteer_id}/unavailability")
+async def add_unavailability(volunteer_id: str, unavail: UnavailabilityDate, current_user: dict = Depends(get_current_user)):
+    await db.volunteers.update_one(
+        {"id": volunteer_id},
+        {"$push": {"unavailability_dates": unavail.model_dump()}}
+    )
+    return {"message": "Unavailability added"}
+
+@api_router.delete("/volunteers/{volunteer_id}/unavailability/{date}")
+async def remove_unavailability(volunteer_id: str, date: str, current_user: dict = Depends(get_current_user)):
+    await db.volunteers.update_one(
+        {"id": volunteer_id},
+        {"$pull": {"unavailability_dates": {"date": date}}}
+    )
+    return {"message": "Unavailability removed"}
+
+@api_router.post("/songs")
+async def create_song(song: SongCreate, current_user: dict = Depends(get_current_user)):
+    song_doc = song.model_dump()
+    song_doc["id"] = str(uuid.uuid4())
+    song_doc["last_played_date"] = None
+    song_doc["play_count"] = 0
+    song_doc["created_at"] = datetime.now(timezone.utc)
+    
+    await db.songs.insert_one(song_doc)
+    song_doc.pop("_id", None)
+    return song_doc
+
+@api_router.get("/songs")
+async def get_songs(current_user: dict = Depends(get_current_user)):
+    songs = await db.songs.find({}, {"_id": 0}).to_list(1000)
+    return songs
+
+@api_router.get("/songs/{song_id}")
+async def get_song(song_id: str, current_user: dict = Depends(get_current_user)):
+    song = await db.songs.find_one({"id": song_id}, {"_id": 0})
+    if not song:
+        raise HTTPException(status_code=404, detail="Song not found")
+    return song
+
+@api_router.put("/songs/{song_id}")
+async def update_song(song_id: str, updates: SongUpdate, current_user: dict = Depends(get_current_user)):
+    update_data = {k: v for k, v in updates.model_dump().items() if v is not None}
+    if update_data:
+        await db.songs.update_one({"id": song_id}, {"$set": update_data})
+    updated = await db.songs.find_one({"id": song_id}, {"_id": 0})
+    return updated
+
+@api_router.delete("/songs/{song_id}")
+async def delete_song(song_id: str, current_user: dict = Depends(get_current_user)):
+    result = await db.songs.delete_one({"id": song_id})
+    if result.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Song not found")
+    return {"message": "Song deleted successfully"}
+
+@api_router.post("/schedules")
+async def create_schedule(schedule: ScheduleCreate, current_user: dict = Depends(get_current_user)):
+    schedule_doc = schedule.model_dump()
+    schedule_doc["id"] = str(uuid.uuid4())
+    schedule_doc["created_at"] = datetime.now(timezone.utc)
+    schedule_doc["created_by"] = current_user["_id"]
+    
+    await db.schedules.insert_one(schedule_doc)
+    schedule_doc.pop("_id", None)
+    return schedule_doc
+
+@api_router.get("/schedules")
+async def get_schedules(current_user: dict = Depends(get_current_user)):
+    schedules = await db.schedules.find({}, {"_id": 0}).to_list(1000)
+    return schedules
+
+@api_router.get("/schedules/{schedule_id}")
+async def get_schedule(schedule_id: str, current_user: dict = Depends(get_current_user)):
+    schedule = await db.schedules.find_one({"id": schedule_id}, {"_id": 0})
+    if not schedule:
+        raise HTTPException(status_code=404, detail="Schedule not found")
+    
+    members = await db.schedule_members.find({"schedule_id": schedule_id}, {"_id": 0}).to_list(1000)
+    schedule["members"] = members
+    
+    setlist = await db.setlists.find_one({"schedule_id": schedule_id}, {"_id": 0})
+    schedule["setlist"] = setlist.get("songs", []) if setlist else []
+    
+    return schedule
+
+@api_router.put("/schedules/{schedule_id}")
+async def update_schedule(schedule_id: str, updates: ScheduleUpdate, current_user: dict = Depends(get_current_user)):
+    update_data = {k: v for k, v in updates.model_dump().items() if v is not None}
+    if update_data:
+        await db.schedules.update_one({"id": schedule_id}, {"$set": update_data})
+    updated = await db.schedules.find_one({"id": schedule_id}, {"_id": 0})
+    return updated
+
+@api_router.delete("/schedules/{schedule_id}")
+async def delete_schedule(schedule_id: str, current_user: dict = Depends(get_current_user)):
+    await db.schedules.delete_one({"id": schedule_id})
+    await db.schedule_members.delete_many({"schedule_id": schedule_id})
+    await db.setlists.delete_one({"schedule_id": schedule_id})
+    return {"message": "Schedule deleted successfully"}
+
+@api_router.post("/schedules/{schedule_id}/members")
+async def add_schedule_member(schedule_id: str, member: ScheduleMemberAdd, current_user: dict = Depends(get_current_user)):
+    volunteer = await db.volunteers.find_one({"id": member.volunteer_id}, {"_id": 0})
+    if not volunteer:
+        raise HTTPException(status_code=404, detail="Volunteer not found")
+    
+    schedule = await db.schedules.find_one({"id": schedule_id}, {"_id": 0})
+    if not schedule:
+        raise HTTPException(status_code=404, detail="Schedule not found")
+    
+    schedule_date = schedule.get("date", "")
+    unavail_dates = volunteer.get("unavailability_dates", [])
+    for unavail in unavail_dates:
+        if unavail.get("date") == schedule_date:
+            return {"warning": f"Voluntário {volunteer['name']} está indisponível nesta data: {unavail.get('reason', 'Sem motivo especificado')}"}
+    
+    member_doc = {
+        "id": str(uuid.uuid4()),
+        "schedule_id": schedule_id,
+        "volunteer_id": member.volunteer_id,
+        "volunteer_name": volunteer["name"],
+        "function": member.function,
+        "confirmation_status": "Pendente",
+        "created_at": datetime.now(timezone.utc)
+    }
+    
+    await db.schedule_members.insert_one(member_doc)
+    member_doc.pop("_id", None)
+    return member_doc
+
+@api_router.put("/schedules/{schedule_id}/members/{member_id}")
+async def update_schedule_member(schedule_id: str, member_id: str, updates: ScheduleMemberUpdate, current_user: dict = Depends(get_current_user)):
+    await db.schedule_members.update_one(
+        {"id": member_id, "schedule_id": schedule_id},
+        {"$set": {"confirmation_status": updates.confirmation_status}}
+    )
+    updated = await db.schedule_members.find_one({"id": member_id}, {"_id": 0})
+    return updated
+
+@api_router.delete("/schedules/{schedule_id}/members/{member_id}")
+async def delete_schedule_member(schedule_id: str, member_id: str, current_user: dict = Depends(get_current_user)):
+    result = await db.schedule_members.delete_one({"id": member_id, "schedule_id": schedule_id})
+    if result.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Member not found")
+    return {"message": "Member removed from schedule"}
+
+@api_router.post("/setlists/{schedule_id}/songs")
+async def add_setlist_song(schedule_id: str, song_data: SetlistSongAdd, current_user: dict = Depends(get_current_user)):
+    song = await db.songs.find_one({"id": song_data.song_id}, {"_id": 0})
+    if not song:
+        raise HTTPException(status_code=404, detail="Song not found")
+    
+    setlist = await db.setlists.find_one({"schedule_id": schedule_id})
+    
+    song_entry = {
+        "id": str(uuid.uuid4()),
+        "song_id": song_data.song_id,
+        "song_name": song["name"],
+        "original_key": song["original_key"],
+        "key_for_this_event": song_data.key_for_this_event or song["original_key"],
+        "main_vocal_volunteer_id": song_data.main_vocal_volunteer_id,
+        "order": song_data.order
+    }
+    
+    if setlist:
+        await db.setlists.update_one(
+            {"schedule_id": schedule_id},
+            {"$push": {"songs": song_entry}}
+        )
+    else:
+        setlist_doc = {
+            "schedule_id": schedule_id,
+            "songs": [song_entry],
+            "created_at": datetime.now(timezone.utc)
+        }
+        await db.setlists.insert_one(setlist_doc)
+    
+    await db.songs.update_one(
+        {"id": song_data.song_id},
+        {
+            "$set": {"last_played_date": datetime.now(timezone.utc)},
+            "$inc": {"play_count": 1}
+        }
+    )
+    
+    return song_entry
+
+@api_router.get("/setlists/{schedule_id}")
+async def get_setlist(schedule_id: str, current_user: dict = Depends(get_current_user)):
+    setlist = await db.setlists.find_one({"schedule_id": schedule_id}, {"_id": 0})
+    if not setlist:
+        return {"schedule_id": schedule_id, "songs": []}
+    return setlist
+
+@api_router.delete("/setlists/{schedule_id}/songs/{song_entry_id}")
+async def remove_setlist_song(schedule_id: str, song_entry_id: str, current_user: dict = Depends(get_current_user)):
+    await db.setlists.update_one(
+        {"schedule_id": schedule_id},
+        {"$pull": {"songs": {"id": song_entry_id}}}
+    )
+    return {"message": "Song removed from setlist"}
+
+@api_router.get("/schedules/{schedule_id}/vocals")
+async def get_schedule_vocals(schedule_id: str, current_user: dict = Depends(get_current_user)):
+    members = await db.schedule_members.find(
+        {"schedule_id": schedule_id, "function": {"$regex": "vocal", "$options": "i"}},
+        {"_id": 0}
+    ).to_list(1000)
+    return members
+
+@api_router.get("/dashboard/metrics")
+async def get_dashboard_metrics(current_user: dict = Depends(get_current_user)):
+    now = datetime.now(timezone.utc)
+    month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    
+    schedules_count = await db.schedules.count_documents({})
+    volunteers_count = await db.volunteers.count_documents({"status": "Ativo"})
+    songs_count = await db.songs.count_documents({})
+    
+    volunteers = await db.volunteers.find({"status": "Ativo"}, {"_id": 0, "birth_date": 1, "name": 1}).to_list(1000)
+    birthdays = []
+    for vol in volunteers:
+        if vol.get("birth_date"):
+            from dateutil import parser
+            bd = parser.parse(vol["birth_date"])
+            if bd.month == now.month:
+                birthdays.append({"name": vol["name"], "date": bd.day})
+    
+    return {
+        "total_schedules": schedules_count,
+        "active_volunteers": volunteers_count,
+        "total_songs": songs_count,
+        "birthdays_this_month": birthdays
+    }
+
+@api_router.get("/dashboard/top-songs")
+async def get_top_songs(current_user: dict = Depends(get_current_user)):
+    songs = await db.songs.find({}, {"_id": 0}).sort("play_count", -1).limit(10).to_list(10)
+    return songs
+
+@api_router.get("/dashboard/burnout-alert")
+async def get_burnout_alert(current_user: dict = Depends(get_current_user)):
+    all_schedules = await db.schedules.find({}, {"_id": 0}).sort("date", -1).to_list(1000)
+    
+    volunteer_participation = {}
+    for schedule in all_schedules:
+        members = await db.schedule_members.find({"schedule_id": schedule["id"]}, {"_id": 0}).to_list(1000)
+        for member in members:
+            vol_id = member["volunteer_id"]
+            if vol_id not in volunteer_participation:
+                volunteer_participation[vol_id] = {"name": member["volunteer_name"], "dates": []}
+            volunteer_participation[vol_id]["dates"].append(schedule["date"])
+    
+    burnout_list = []
+    for vol_id, data in volunteer_participation.items():
+        if len(data["dates"]) >= 4:
+            burnout_list.append({"volunteer_id": vol_id, "name": data["name"], "consecutive_schedules": len(data["dates"])})
+    
+    return burnout_list
+
+@api_router.post("/notifications/send")
+async def send_notification(notif: NotificationRequest, current_user: dict = Depends(get_current_user)):
+    result = {"email_sent": False, "sms_sent": False}
+    
+    if notif.channel in ["email", "both"] and notif.recipient_email:
+        resend.api_key = os.environ.get("RESEND_API_KEY", "")
+        if resend.api_key:
+            try:
+                params = {
+                    "from": os.environ.get("SENDER_EMAIL", "onboarding@resend.dev"),
+                    "to": [notif.recipient_email],
+                    "subject": notif.subject,
+                    "html": f"<p>{notif.message}</p>"
+                }
+                email = await asyncio.to_thread(resend.Emails.send, params)
+                result["email_sent"] = True
+            except Exception as e:
+                result["email_error"] = str(e)
+    
+    if notif.channel in ["sms", "both"] and notif.recipient_phone:
+        pass
+    
+    notif_doc = notif.model_dump()
+    notif_doc["id"] = str(uuid.uuid4())
+    notif_doc["sent_at"] = datetime.now(timezone.utc)
+    notif_doc["sent_by"] = current_user["id"]
+    notif_doc["result"] = result
+    await db.notifications.insert_one(notif_doc)
+    
+    return result
+
+@api_router.post("/chat/messages")
+async def send_chat_message(message: ChatMessageCreate, current_user: dict = Depends(get_current_user)):
+    msg_doc = {
+        "id": str(uuid.uuid4()),
+        "from_user_id": current_user["id"],
+        "from_user_name": current_user["name"],
+        "to_user_id": message.to_user_id,
+        "message": message.message,
+        "read": False,
+        "timestamp": datetime.now(timezone.utc)
+    }
+    await db.chat_messages.insert_one(msg_doc)
+    msg_doc.pop("_id", None)
+    return msg_doc
+
+@api_router.get("/chat/messages/{other_user_id}")
+async def get_chat_messages(other_user_id: str, current_user: dict = Depends(get_current_user)):
+    messages = await db.chat_messages.find(
+        {
+            "$or": [
+                {"from_user_id": current_user["id"], "to_user_id": other_user_id},
+                {"from_user_id": other_user_id, "to_user_id": current_user["id"]}
+            ]
+        },
+        {"_id": 0}
+    ).sort("timestamp", 1).to_list(1000)
+    return messages
+
+@api_router.post("/volunteers/{volunteer_id}/upload-photo")
+async def upload_volunteer_photo(volunteer_id: str, file: UploadFile = File(...), current_user: dict = Depends(get_current_user)):
+    contents = await file.read()
+    base64_image = base64.b64encode(contents).decode('utf-8')
+    photo_url = f"data:{file.content_type};base64,{base64_image}"
+    
+    await db.volunteers.update_one(
+        {"id": volunteer_id},
+        {"$set": {"photo_url": photo_url}}
+    )
+    
+    return {"photo_url": photo_url}
+
 app.include_router(api_router)
 
 app.add_middleware(
@@ -77,12 +621,52 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Configure logging
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
+
+@app.on_event("startup")
+async def startup_event():
+    await db.users.create_index("email", unique=True)
+    await db.volunteers.create_index("id", unique=True)
+    await db.songs.create_index("id", unique=True)
+    await db.schedules.create_index("id", unique=True)
+    await db.schedule_members.create_index("id", unique=True)
+    
+    admin_email = os.environ.get("ADMIN_EMAIL", "admin@redmusic.com")
+    admin_password = os.environ.get("ADMIN_PASSWORD", "Admin@2026")
+    existing = await db.users.find_one({"email": admin_email})
+    if existing is None:
+        hashed = hash_password(admin_password)
+        await db.users.insert_one({
+            "email": admin_email,
+            "password_hash": hashed,
+            "name": "Administrador",
+            "role": "Administrador",
+            "created_at": datetime.now(timezone.utc)
+        })
+        logger.info(f"Admin user created: {admin_email}")
+    elif not verify_password(admin_password, existing["password_hash"]):
+        await db.users.update_one(
+            {"email": admin_email},
+            {"$set": {"password_hash": hash_password(admin_password)}}
+        )
+        logger.info(f"Admin password updated")
+    
+    Path("/app/memory").mkdir(exist_ok=True)
+    with open("/app/memory/test_credentials.md", "w") as f:
+        f.write("# Test Credentials\n\n")
+        f.write("## Admin Account\n")
+        f.write(f"- Email: {admin_email}\n")
+        f.write(f"- Password: {admin_password}\n")
+        f.write(f"- Role: Administrador\n\n")
+        f.write("## Auth Endpoints\n")
+        f.write("- POST /api/auth/register\n")
+        f.write("- POST /api/auth/login\n")
+        f.write("- POST /api/auth/logout\n")
+        f.write("- GET /api/auth/me\n")
 
 @app.on_event("shutdown")
 async def shutdown_db_client():
