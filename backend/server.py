@@ -481,6 +481,17 @@ async def remove_setlist_song(schedule_id: str, song_entry_id: str, current_user
     )
     return {"message": "Song removed from setlist"}
 
+class SetlistReorder(BaseModel):
+    songs: List[dict]
+
+@api_router.put("/setlists/{schedule_id}/reorder")
+async def reorder_setlist(schedule_id: str, data: SetlistReorder, current_user: dict = Depends(get_current_user)):
+    await db.setlists.update_one(
+        {"schedule_id": schedule_id},
+        {"$set": {"songs": data.songs}}
+    )
+    return {"message": "Setlist reordered successfully"}
+
 @api_router.get("/schedules/{schedule_id}/vocals")
 async def get_schedule_vocals(schedule_id: str, current_user: dict = Depends(get_current_user)):
     members = await db.schedule_members.find(
@@ -488,6 +499,31 @@ async def get_schedule_vocals(schedule_id: str, current_user: dict = Depends(get
         {"_id": 0}
     ).to_list(1000)
     return members
+
+@api_router.get("/volunteers/{volunteer_id}/participation-history")
+async def get_volunteer_participation(volunteer_id: str, current_user: dict = Depends(get_current_user)):
+    schedules = await db.schedules.find({}, {"_id": 0}).to_list(1000)
+    
+    participation = []
+    for schedule in schedules:
+        members = await db.schedule_members.find(
+            {"schedule_id": schedule["id"], "volunteer_id": volunteer_id},
+            {"_id": 0}
+        ).to_list(1000)
+        
+        if members:
+            for member in members:
+                participation.append({
+                    "schedule_id": schedule["id"],
+                    "schedule_name": schedule["name"],
+                    "schedule_date": schedule["date"],
+                    "schedule_time": schedule["time"],
+                    "function": member["function"],
+                    "confirmation_status": member["confirmation_status"]
+                })
+    
+    participation.sort(key=lambda x: x["schedule_date"], reverse=True)
+    return participation
 
 @api_router.get("/dashboard/metrics")
 async def get_dashboard_metrics(current_user: dict = Depends(get_current_user)):

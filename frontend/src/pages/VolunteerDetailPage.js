@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { useParams, useNavigate, Link } from 'react-router-dom';
+import { useParams, useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -23,9 +23,11 @@ export const VolunteerDetailPage = () => {
   const [unavailDialogOpen, setUnavailDialogOpen] = useState(false);
   const [unavailDate, setUnavailDate] = useState('');
   const [unavailReason, setUnavailReason] = useState('');
+  const [participationHistory, setParticipationHistory] = useState([]);
 
   useEffect(() => {
     loadVolunteer();
+    loadParticipationHistory();
   }, [id]);
 
   const loadVolunteer = async () => {
@@ -37,6 +39,15 @@ export const VolunteerDetailPage = () => {
       navigate('/volunteers');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const loadParticipationHistory = async () => {
+    try {
+      const { data } = await axios.get(`${API}/volunteers/${id}/participation-history`, { withCredentials: true });
+      setParticipationHistory(data);
+    } catch (error) {
+      console.error('Erro ao carregar histórico:', error);
     }
   };
 
@@ -209,6 +220,7 @@ export const VolunteerDetailPage = () => {
                 <Calendar className="w-4 h-4 mr-2" />
                 Indisponibilidade
               </TabsTrigger>
+              <TabsTrigger value="history" data-testid="tab-history">Histórico</TabsTrigger>
             </TabsList>
 
             <TabsContent value="info" className="mt-6">
@@ -330,6 +342,52 @@ export const VolunteerDetailPage = () => {
                           >
                             <Trash2 className="w-4 h-4" />
                           </Button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            </TabsContent>
+
+            <TabsContent value="history" className="mt-6">
+              <Card className="border-[#e28b95]/20">
+                <CardHeader>
+                  <CardTitle className="text-lg">Histórico de Participação</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  {participationHistory.length === 0 ? (
+                    <p className="text-[#6b7280] text-sm text-center py-8">
+                      Nenhuma participação registrada ainda
+                    </p>
+                  ) : (
+                    <div className="space-y-3">
+                      {participationHistory.map((item, idx) => (
+                        <div
+                          key={idx}
+                          className="p-4 bg-[#fcf7f6] rounded-lg border border-[#e28b95]/20"
+                          data-testid={`history-item-${idx}`}
+                        >
+                          <div className="flex items-start justify-between">
+                            <div>
+                              <p className="font-semibold text-[#111111]">{item.schedule_name}</p>
+                              <p className="text-sm text-[#6b7280] mt-1">
+                                {new Date(item.schedule_date + 'T00:00:00').toLocaleDateString('pt-BR')} às {item.schedule_time}
+                              </p>
+                              <p className="text-sm text-[#6b7280]">Função: {item.function}</p>
+                            </div>
+                            <Badge
+                              className={
+                                item.confirmation_status === 'Confirmado'
+                                  ? 'bg-green-100 text-green-800 hover:bg-green-100'
+                                  : item.confirmation_status === 'Preciso de Substituto'
+                                  ? 'bg-red-100 text-red-800 hover:bg-red-100'
+                                  : 'bg-yellow-100 text-yellow-800 hover:bg-yellow-100'
+                              }
+                            >
+                              {item.confirmation_status}
+                            </Badge>
+                          </div>
                         </div>
                       ))}
                     </div>
