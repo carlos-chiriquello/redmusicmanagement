@@ -267,12 +267,17 @@ async def create_volunteer(volunteer: VolunteerCreate, current_user: dict = Depe
 
 @api_router.get("/volunteers")
 async def get_volunteers(current_user: dict = Depends(get_current_user)):
-    volunteers = await db.volunteers.find({}, {"_id": 0}).to_list(1000)
+    volunteers = await db.volunteers.find({}).to_list(1000)
+    result = []
     for vol in volunteers:
-        if "id" not in vol and "_id" in vol:
-            vol["id"] = str(vol["_id"])
-            vol.pop("_id", None)
-    return volunteers
+        vol_id = vol.get("id")
+        if not vol_id:
+            vol_id = str(vol.get("_id", uuid.uuid4()))
+            await db.volunteers.update_one({"_id": vol["_id"]}, {"$set": {"id": vol_id}})
+            vol["id"] = vol_id
+        vol.pop("_id", None)
+        result.append(vol)
+    return result
 
 @api_router.get("/volunteers/{volunteer_id}")
 async def get_volunteer(volunteer_id: str, current_user: dict = Depends(get_current_user)):
@@ -454,23 +459,31 @@ async def get_available_volunteers_for_schedule(schedule_id: str, current_user: 
     availabilities = await db.availability.find({"schedule_id": schedule_id, "available": True}, {"_id": 0}).to_list(1000)
     available_ids = [a["volunteer_id"] for a in availabilities]
     
-    all_volunteers = await db.volunteers.find({"status": "Ativo"}, {"_id": 0}).to_list(1000)
+    all_volunteers = await db.volunteers.find({"status": "Ativo"}).to_list(1000)
     
     result = []
     for vol in all_volunteers:
+        # Backfill: ensure 'id' field exists (legacy documents may only have _id)
+        vol_id = vol.get("id")
+        if not vol_id:
+            vol_id = str(vol.get("_id", uuid.uuid4()))
+            await db.volunteers.update_one({"_id": vol["_id"]}, {"$set": {"id": vol_id}})
+            vol["id"] = vol_id
+        vol.pop("_id", None)
+        
         is_unavailable = any(u.get("date") == schedule_date for u in vol.get("unavailability_dates", []))
         if is_unavailable:
             continue
         
         has_availability_records = len(availabilities) > 0
-        if has_availability_records and vol["id"] not in available_ids:
+        if has_availability_records and vol_id not in available_ids:
             continue
         
         # Contar escalas no mês
         year_month = schedule_date[:7] if schedule_date else ""
         monthly_count = 0
         if year_month:
-            monthly_members = await db.schedule_members.find({"volunteer_id": vol["id"]}, {"_id": 0}).to_list(1000)
+            monthly_members = await db.schedule_members.find({"volunteer_id": vol_id}, {"_id": 0}).to_list(1000)
             for m in monthly_members:
                 m_schedule = await db.schedules.find_one({"id": m["schedule_id"]}, {"_id": 0})
                 if m_schedule and m_schedule.get("date", "").startswith(year_month) and m_schedule.get("status") in ["Em Validação", "Fechada"]:
@@ -478,7 +491,7 @@ async def get_available_volunteers_for_schedule(schedule_id: str, current_user: 
         
         vol["monthly_schedule_count"] = monthly_count
         vol["is_exhausted"] = monthly_count >= 2
-        vol["explicitly_available"] = vol["id"] in available_ids
+        vol["explicitly_available"] = vol_id in available_ids
         result.append(vol)
     
     return result

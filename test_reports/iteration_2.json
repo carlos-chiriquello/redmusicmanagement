@@ -1,0 +1,50 @@
+{
+  "summary": "Retest of critical fix for GET /api/schedules/{id}/available-volunteers backfill + Promise.allSettled + data-testid on volunteer cards. Injected a legacy volunteer with only _id (no 'id' field) to reproduce the previous 500 scenario. Ran full pytest suite (12 tests) and targeted frontend flow. ALL 12/12 backend tests passed. Legacy volunteer document was successfully backfilled and persisted (verified via direct Mongo read). Frontend detail page loads correctly, does NOT redirect back on partial errors, and Adicionar Membro dialog shows visual cards with data-testid='available-volunteer-card-{id}'. Critical bug from iteration 1 is FIXED.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "server.py add_schedule_member", "issue": "Dead code block (previously reported iteration_1) - not verified again this pass but likely still present"},
+      {"endpoint": "POST /api/notifications/send", "issue": "RESEND_API_KEY not configured -> email_sent=false. MOCKED / not delivering real email."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Dialogs (Adicionar Membro etc.)", "issues": ["Radix warning: 'Missing Description or aria-describedby={undefined} for DialogContent'. Still present. Add <DialogDescription /> for accessibility."]}
+    ]
+  },
+  "verified_features": [
+    "CRITICAL FIX: Injected legacy volunteer without 'id' field -> GET /api/schedules/{id}/available-volunteers returns 200, backfills id=str(_id), persists via update_one. Verified via direct Mongo query after test.",
+    "GET /api/volunteers backfills 'id' on legacy docs and returns full list without _id.",
+    "POST /api/volunteers uses uuid.uuid4() for id (server.py line 259).",
+    "ScheduleDetailPage uses Promise.allSettled (line 59) - page renders even if available-volunteers fails (sets [] and logs console warning).",
+    "Volunteer cards in Adicionar Membro dialog have data-testid='available-volunteer-card-{id}' (verified: 'available-volunteer-card-fadbff8c-3638-4d1d-b402-a8e6316d7c48').",
+    "POST /api/schedules/batch: past date skipped with reason='past_date', future dates created with team_slots.Vocal=6.",
+    "POST /api/notifications/send and POST /api/chat/messages: no KeyError on current_user['id'].",
+    "Slot limits enforced: Vocal 6 (7th Backing Vocal -> 400), Violão 2 (3rd -> 400), Baixo 1 (2nd -> 400).",
+    "is_exhausted flag returned by /available-volunteers along with monthly_schedule_count and explicitly_available.",
+    "Unavailability warning returned when adding member on a date the volunteer is unavailable."
+  ],
+  "test_report_links": [
+    "/app/backend/tests/backend_test.py",
+    "/app/test_reports/pytest/pytest_results.xml"
+  ],
+  "action_items": [
+    "(Optional) Add <DialogDescription /> to Radix Dialogs to silence a11y warning.",
+    "(Optional) Remove dead code block in server.py add_schedule_member (from iteration_1 report).",
+    "Configure RESEND_API_KEY in backend .env if real email delivery is required (currently MOCKED / email_sent=false)."
+  ],
+  "critical_code_review_comments": [
+    "Backfill logic duplicated across get_volunteers and get_available_volunteers - consider a helper `normalize_volunteer(vol)`.",
+    "Backfill inside GET endpoints causes hidden write-on-read side effects; better to run a one-time startup migration."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "100% (12/12)", "frontend": "100% of retested flows"},
+  "test_credentials": "admin@redmusic.com / Admin@2026",
+  "seed_data_creation": "Temporarily inserted volunteer 'LEGACY_TEST_NoId' (email legacy_noid@test.com) with only _id and no 'id' field to reproduce the previous 500 bug. After test confirmed backfill persistence, the document was deleted. Confirmed backfill wrote 'id' = str(_id) to the DB.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "All items from review_request verified. backend_test.py at /app/backend/tests/backend_test.py has 12 pytest tests. Frontend flow: login (admin@redmusic.com/Admin@2026) -> /schedules -> click schedule -> detail page -> Adicionar Membro -> cards with data-testid. Existing schedule id used: 1a4bac41-2bca-467d-a922-948bf8b3f515.",
+  "rca of the issue": "Previous 500 in /available-volunteers was fixed by adding defensive backfill: if vol.get('id') is missing, set to str(_id) and persist via db.volunteers.update_one. Same pattern applied to /volunteers. create_volunteer now always writes UUID id. Frontend switched from Promise.all to Promise.allSettled so partial failure does not redirect user off the detail page."
+}

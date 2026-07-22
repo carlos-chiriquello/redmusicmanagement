@@ -56,19 +56,37 @@ export const ScheduleDetailPage = () => {
 
   const loadData = async () => {
     try {
-      const [scheduleRes, volunteersRes, songsRes, availableRes] = await Promise.all([
+      const [scheduleRes, volunteersRes, songsRes, availableRes] = await Promise.allSettled([
         axios.get(`${API}/schedules/${id}`, { withCredentials: true }),
         axios.get(`${API}/volunteers`, { withCredentials: true }),
         axios.get(`${API}/songs`, { withCredentials: true }),
         axios.get(`${API}/schedules/${id}/available-volunteers`, { withCredentials: true })
       ]);
-      setSchedule(scheduleRes.data);
-      setVolunteers(volunteersRes.data.filter(v => v.status === 'Ativo'));
-      setSongs(songsRes.data);
-      setAvailableVolunteers(availableRes.data);
+      
+      if (scheduleRes.status === 'fulfilled') {
+        setSchedule(scheduleRes.value.data);
+      } else {
+        toast.error('Erro ao carregar escala');
+        navigate('/schedules');
+        return;
+      }
+      
+      if (volunteersRes.status === 'fulfilled') {
+        setVolunteers(volunteersRes.value.data.filter(v => v.status === 'Ativo'));
+      }
+      
+      if (songsRes.status === 'fulfilled') {
+        setSongs(songsRes.value.data);
+      }
+      
+      if (availableRes.status === 'fulfilled') {
+        setAvailableVolunteers(availableRes.value.data);
+      } else {
+        console.warn('Falha ao carregar voluntários disponíveis:', availableRes.reason);
+        setAvailableVolunteers([]);
+      }
     } catch (error) {
       toast.error('Erro ao carregar dados');
-      navigate('/schedules');
     } finally {
       setLoading(false);
     }
@@ -478,7 +496,7 @@ export const ScheduleDetailPage = () => {
                                 type="button"
                                 disabled={alreadyAdded}
                                 onClick={() => addMemberByCard(vol.id)}
-                                data-testid={`volunteer-card-${vol.id}`}
+                                data-testid={`available-volunteer-card-${vol.id}`}
                                 className={`p-3 border rounded-lg text-left transition-all ${
                                   alreadyAdded
                                     ? 'bg-gray-100 border-gray-300 opacity-60 cursor-not-allowed'
