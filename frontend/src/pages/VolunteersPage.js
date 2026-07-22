@@ -7,10 +7,33 @@ import { Label } from '@/components/ui/label';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Card, CardContent } from '@/components/ui/card';
+import { Checkbox } from '@/components/ui/checkbox';
 import { Plus, Search, ChevronRight, Filter, X } from 'lucide-react';
 import { toast } from 'sonner';
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
+
+const INSTRUMENT_OPTIONS = [
+  'Vocal',
+  'Violão',
+  'Guitarra',
+  'Baixo',
+  'Bateria',
+  'Teclado',
+  'Percussão'
+];
+
+const emptyForm = {
+  name: '',
+  birth_date: '',
+  email: '',
+  phone: '',
+  instruments: [],
+  functions: [],
+  phase: 'Em Teste',
+  status: 'Ativo',
+  tags: []
+};
 
 export const VolunteersPage = () => {
   const [volunteers, setVolunteers] = useState([]);
@@ -20,19 +43,10 @@ export const VolunteersPage = () => {
   const [filterOpen, setFilterOpen] = useState(false);
   const [filters, setFilters] = useState({
     status: 'all',
-    phase: 'all'
+    phase: 'all',
+    instrument: 'all'
   });
-  const [formData, setFormData] = useState({
-    name: '',
-    birth_date: '',
-    email: '',
-    phone: '',
-    instruments: [],
-    functions: [],
-    phase: 'Em Teste',
-    status: 'Ativo',
-    tags: []
-  });
+  const [formData, setFormData] = useState(emptyForm);
 
   useEffect(() => {
     loadVolunteers();
@@ -49,8 +63,21 @@ export const VolunteersPage = () => {
     }
   };
 
+  const toggleInstrument = (instrument) => {
+    setFormData(prev => ({
+      ...prev,
+      instruments: prev.instruments.includes(instrument)
+        ? prev.instruments.filter(i => i !== instrument)
+        : [...prev.instruments, instrument]
+    }));
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
+    if (formData.instruments.length === 0) {
+      toast.error('Selecione pelo menos um instrumento/função');
+      return;
+    }
     try {
       await axios.post(`${API}/volunteers`, formData, { withCredentials: true });
       toast.success('Voluntário criado com sucesso');
@@ -63,21 +90,11 @@ export const VolunteersPage = () => {
   };
 
   const resetForm = () => {
-    setFormData({
-      name: '',
-      birth_date: '',
-      email: '',
-      phone: '',
-      instruments: [],
-      functions: [],
-      phase: 'Em Teste',
-      status: 'Ativo',
-      tags: []
-    });
+    setFormData(emptyForm);
   };
 
   const clearFilters = () => {
-    setFilters({ status: 'all', phase: 'all' });
+    setFilters({ status: 'all', phase: 'all', instrument: 'all' });
     setSearch('');
   };
 
@@ -85,10 +102,11 @@ export const VolunteersPage = () => {
     const matchesSearch = v.name.toLowerCase().includes(search.toLowerCase());
     const matchesStatus = filters.status === 'all' || v.status === filters.status;
     const matchesPhase = filters.phase === 'all' || v.phase === filters.phase;
-    return matchesSearch && matchesStatus && matchesPhase;
+    const matchesInstrument = filters.instrument === 'all' || (v.instruments && v.instruments.includes(filters.instrument));
+    return matchesSearch && matchesStatus && matchesPhase && matchesInstrument;
   });
 
-  const hasActiveFilters = filters.status !== 'all' || filters.phase !== 'all' || search !== '';
+  const hasActiveFilters = filters.status !== 'all' || filters.phase !== 'all' || filters.instrument !== 'all' || search !== '';
 
   return (
     <div className="space-y-6" data-testid="volunteers-page">
@@ -97,7 +115,7 @@ export const VolunteersPage = () => {
           <h1 className="text-3xl font-bold text-[#111111] tracking-tight">Voluntários</h1>
           <p className="text-base text-[#6b7280]">Gerencie os membros do ministério</p>
         </div>
-        <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+        <Dialog open={dialogOpen} onOpenChange={(open) => { setDialogOpen(open); if (!open) resetForm(); }}>
           <DialogTrigger asChild>
             <Button data-testid="add-volunteer-button" className="bg-[#c72137] hover:bg-[#cf3f57]">
               <Plus className="w-4 h-4 mr-2" />
@@ -111,7 +129,7 @@ export const VolunteersPage = () => {
             <form onSubmit={handleSubmit} className="space-y-4" data-testid="volunteer-form">
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <Label>Nome completo</Label>
+                  <Label>Nome completo *</Label>
                   <Input
                     value={formData.name}
                     onChange={(e) => setFormData({...formData, name: e.target.value})}
@@ -120,7 +138,7 @@ export const VolunteersPage = () => {
                   />
                 </div>
                 <div>
-                  <Label>Data de Nascimento</Label>
+                  <Label>Data de Nascimento *</Label>
                   <Input
                     type="date"
                     value={formData.birth_date}
@@ -130,7 +148,7 @@ export const VolunteersPage = () => {
                   />
                 </div>
                 <div>
-                  <Label>E-mail</Label>
+                  <Label>E-mail *</Label>
                   <Input
                     type="email"
                     value={formData.email}
@@ -174,6 +192,27 @@ export const VolunteersPage = () => {
                   </Select>
                 </div>
               </div>
+
+              <div className="pt-2 border-t border-[#e28b95]/20">
+                <Label className="text-base font-semibold text-[#111111] mb-3 block">Instrumentos / Funções *</Label>
+                <p className="text-xs text-[#6b7280] mb-3">Selecione todos os instrumentos/funções que este voluntário executa</p>
+                <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+                  {INSTRUMENT_OPTIONS.map(instrument => (
+                    <label
+                      key={instrument}
+                      className="flex items-center gap-2 p-3 border border-[#e28b95]/30 rounded-lg cursor-pointer hover:bg-[#fcf7f6] transition-colors"
+                      data-testid={`instrument-option-${instrument}`}
+                    >
+                      <Checkbox
+                        checked={formData.instruments.includes(instrument)}
+                        onCheckedChange={() => toggleInstrument(instrument)}
+                      />
+                      <span className="text-sm font-medium text-[#111111]">{instrument}</span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+
               <Button type="submit" className="w-full bg-[#c72137] hover:bg-[#cf3f57]" data-testid="volunteer-submit-button">
                 Criar Voluntário
               </Button>
@@ -219,7 +258,7 @@ export const VolunteersPage = () => {
             </div>
 
             {filterOpen && (
-              <div className="grid grid-cols-2 gap-4 p-4 bg-[#fcf7f6] rounded-lg border border-[#e28b95]/20" data-testid="filters-panel">
+              <div className="grid grid-cols-3 gap-4 p-4 bg-[#fcf7f6] rounded-lg border border-[#e28b95]/20" data-testid="filters-panel">
                 <div>
                   <Label className="text-sm font-medium text-[#111111] mb-2">Status</Label>
                   <Select value={filters.status} onValueChange={(v) => setFilters({...filters, status: v})}>
@@ -247,6 +286,20 @@ export const VolunteersPage = () => {
                     </SelectContent>
                   </Select>
                 </div>
+                <div>
+                  <Label className="text-sm font-medium text-[#111111] mb-2">Instrumento</Label>
+                  <Select value={filters.instrument} onValueChange={(v) => setFilters({...filters, instrument: v})}>
+                    <SelectTrigger data-testid="filter-instrument">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">Todos</SelectItem>
+                      {INSTRUMENT_OPTIONS.map(i => (
+                        <SelectItem key={i} value={i}>{i}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
               </div>
             )}
           </div>
@@ -271,13 +324,23 @@ export const VolunteersPage = () => {
                   >
                     <div className="p-4 border border-[#e28b95]/20 rounded-lg hover:border-[#c72137]/40 hover:bg-[#fcf7f6] transition-all group">
                       <div className="flex items-start gap-3">
-                        <div className="w-12 h-12 rounded-full bg-[#f7e1e1] flex items-center justify-center text-[#c72137] font-bold flex-shrink-0">
-                          {volunteer.name.charAt(0)}
-                        </div>
+                        {volunteer.photo_url ? (
+                          <img src={volunteer.photo_url} alt={volunteer.name} className="w-12 h-12 rounded-full object-cover flex-shrink-0" />
+                        ) : (
+                          <div className="w-12 h-12 rounded-full bg-[#f7e1e1] flex items-center justify-center text-[#c72137] font-bold flex-shrink-0">
+                            {volunteer.name.charAt(0)}
+                          </div>
+                        )}
                         <div className="flex-1 min-w-0">
                           <h3 className="font-semibold text-[#111111] truncate group-hover:text-[#c72137] transition-colors">{volunteer.name}</h3>
                           <p className="text-sm text-[#6b7280]">{volunteer.age} anos</p>
-                          <div className="flex gap-2 mt-2">
+                          {volunteer.instruments && volunteer.instruments.length > 0 && (
+                            <p className="text-xs text-[#6b7280] truncate mt-1">
+                              {volunteer.instruments.slice(0, 3).join(', ')}
+                              {volunteer.instruments.length > 3 && ` +${volunteer.instruments.length - 3}`}
+                            </p>
+                          )}
+                          <div className="flex gap-2 mt-2 flex-wrap">
                             <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${
                               volunteer.status === 'Ativo' ? 'bg-green-100 text-green-800' :
                               volunteer.status === 'Inativo' ? 'bg-gray-100 text-gray-800' :

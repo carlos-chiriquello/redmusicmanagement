@@ -9,12 +9,30 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { ArrowLeft, Plus, Trash2, Music, Users, CheckCircle, AlertCircle, Clock, Download, GripVertical, Send } from 'lucide-react';
+import { ArrowLeft, Plus, Trash2, Music, Users, CheckCircle, AlertCircle, Clock, Download, GripVertical, Send, Users2, Music2, ArrowRight } from 'lucide-react';
 import { toast } from 'sonner';
 import { DragDropContext, Droppable, Draggable } from 'react-beautiful-dnd';
 import jsPDF from 'jspdf';
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
+
+const STATUS_FLOW = ['Disponibilidade', 'Rascunho', 'Em Validação', 'Fechada'];
+const STATUS_COLORS = {
+  'Disponibilidade': 'bg-blue-100 text-blue-800',
+  'Rascunho': 'bg-yellow-100 text-yellow-800',
+  'Em Validação': 'bg-orange-100 text-orange-800',
+  'Fechada': 'bg-green-100 text-green-800'
+};
+
+const SLOT_LIMITS = {
+  'Vocal': 6,
+  'Violão': 2,
+  'Guitarra': 2,
+  'Teclado': 2,
+  'Baixo': 1,
+  'Bateria': 1,
+  'Percussão': 1
+};
 
 export const ScheduleDetailPage = () => {
   const { id } = useParams();
@@ -71,7 +89,17 @@ export const ScheduleDetailPage = () => {
       setMemberDialogOpen(false);
       setSelectedVolunteer('');
     } catch (error) {
-      toast.error('Erro ao adicionar membro');
+      toast.error(error.response?.data?.detail || 'Erro ao adicionar membro');
+    }
+  };
+
+  const updateScheduleStatus = async (newStatus) => {
+    try {
+      await axios.put(`${API}/schedules/${id}`, { status: newStatus }, { withCredentials: true });
+      toast.success(`Status alterado para: ${newStatus}`);
+      loadData();
+    } catch (error) {
+      toast.error('Erro ao atualizar status');
     }
   };
 
@@ -235,6 +263,24 @@ export const ScheduleDetailPage = () => {
 
   const vocals = schedule?.members?.filter(m => m.function.toLowerCase().includes('vocal')) || [];
 
+  // Contagem de vagas preenchidas por função
+  const slotCounts = {};
+  Object.keys(SLOT_LIMITS).forEach(func => {
+    if (func === 'Vocal') {
+      slotCounts[func] = schedule?.members?.filter(m => 
+        m.function === 'Vocal' || m.function === 'Backing Vocal'
+      ).length || 0;
+    } else {
+      slotCounts[func] = schedule?.members?.filter(m => m.function === func).length || 0;
+    }
+  });
+
+  const currentStatus = schedule?.status || 'Rascunho';
+  const currentStatusIndex = STATUS_FLOW.indexOf(currentStatus);
+  const nextStatus = currentStatusIndex >= 0 && currentStatusIndex < STATUS_FLOW.length - 1 
+    ? STATUS_FLOW[currentStatusIndex + 1] 
+    : null;
+
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
@@ -245,7 +291,7 @@ export const ScheduleDetailPage = () => {
 
   return (
     <div className="space-y-6" data-testid="schedule-detail-page">
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between flex-wrap gap-4">
         <div className="flex items-center gap-4">
           <Button
             variant="ghost"
@@ -256,13 +302,46 @@ export const ScheduleDetailPage = () => {
             <ArrowLeft className="w-5 h-5" />
           </Button>
           <div>
-            <h1 className="text-3xl font-bold text-[#111111] tracking-tight">{schedule?.name}</h1>
-            <p className="text-base text-[#6b7280]">
-              {schedule?.date} às {schedule?.time}
-            </p>
+            <div className="flex items-center gap-2 flex-wrap">
+              <h1 className="text-3xl font-bold text-[#111111] tracking-tight">{schedule?.name}</h1>
+              <Badge className={`${STATUS_COLORS[currentStatus]} hover:${STATUS_COLORS[currentStatus]}`}>
+                {currentStatus}
+              </Badge>
+            </div>
+            <div className="flex items-center gap-3 mt-1 flex-wrap">
+              <p className="text-base text-[#6b7280]">
+                {schedule?.date} às {schedule?.time}
+              </p>
+              {schedule?.event_type && (
+                <Badge variant="outline" className="border-[#e28b95] text-[#c72137]">
+                  {schedule.event_type}
+                </Badge>
+              )}
+              {schedule?.has_choir && (
+                <span className="text-xs flex items-center gap-1 text-[#c72137]">
+                  <Users2 className="w-3 h-3" /> Coral
+                </span>
+              )}
+              {schedule?.has_orchestra && (
+                <span className="text-xs flex items-center gap-1 text-[#c72137]">
+                  <Music2 className="w-3 h-3" /> Orquestra
+                </span>
+              )}
+            </div>
           </div>
         </div>
-        <div className="flex gap-2">
+        <div className="flex gap-2 flex-wrap">
+          {nextStatus && currentStatus !== 'Fechada' && (
+            <Button
+              variant="outline"
+              onClick={() => updateScheduleStatus(nextStatus)}
+              className="border-[#c72137] text-[#c72137] hover:bg-[#f7e1e1]"
+              data-testid="advance-status-button"
+            >
+              <ArrowRight className="w-4 h-4 mr-2" />
+              Avançar para {nextStatus}
+            </Button>
+          )}
           <Dialog open={notifyDialogOpen} onOpenChange={setNotifyDialogOpen}>
             <DialogTrigger asChild>
               <Button variant="outline" className="border-[#c72137] text-[#c72137] hover:bg-[#f7e1e1]" data-testid="notify-button">
@@ -297,6 +376,32 @@ export const ScheduleDetailPage = () => {
           </Button>
         </div>
       </div>
+
+      <Card className="border-[#e28b95]/20" data-testid="slots-overview-card">
+        <CardHeader>
+          <CardTitle className="text-lg">Vagas por Instrumento</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-3">
+            {Object.entries(SLOT_LIMITS).map(([func, limit]) => {
+              const filled = slotCounts[func] || 0;
+              const isFull = filled >= limit;
+              return (
+                <div
+                  key={func}
+                  className={`p-3 rounded-lg border ${isFull ? 'bg-[#f7e1e1] border-[#c72137]' : 'bg-[#fcf7f6] border-[#e28b95]/30'}`}
+                  data-testid={`slot-${func}`}
+                >
+                  <p className="text-xs font-medium text-[#6b7280] mb-1">{func}</p>
+                  <p className={`text-lg font-bold ${isFull ? 'text-[#c72137]' : 'text-[#111111]'}`}>
+                    {filled} / {limit}
+                  </p>
+                </div>
+              );
+            })}
+          </div>
+        </CardContent>
+      </Card>
 
       <Tabs defaultValue="members" className="w-full">
         <TabsList className="grid w-full grid-cols-2 max-w-md">
@@ -345,13 +450,14 @@ export const ScheduleDetailPage = () => {
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="Vocal">Vocal</SelectItem>
-                        <SelectItem value="Backing Vocal">Backing Vocal</SelectItem>
-                        <SelectItem value="Violão">Violão</SelectItem>
-                        <SelectItem value="Guitarra">Guitarra</SelectItem>
-                        <SelectItem value="Baixo">Baixo</SelectItem>
-                        <SelectItem value="Teclado">Teclado</SelectItem>
-                        <SelectItem value="Bateria">Bateria</SelectItem>
+                        <SelectItem value="Vocal">Vocal ({slotCounts['Vocal'] || 0}/6)</SelectItem>
+                        <SelectItem value="Backing Vocal">Backing Vocal (conta como Vocal)</SelectItem>
+                        <SelectItem value="Violão">Violão ({slotCounts['Violão'] || 0}/2)</SelectItem>
+                        <SelectItem value="Guitarra">Guitarra ({slotCounts['Guitarra'] || 0}/2)</SelectItem>
+                        <SelectItem value="Teclado">Teclado ({slotCounts['Teclado'] || 0}/2)</SelectItem>
+                        <SelectItem value="Baixo">Baixo ({slotCounts['Baixo'] || 0}/1)</SelectItem>
+                        <SelectItem value="Bateria">Bateria ({slotCounts['Bateria'] || 0}/1)</SelectItem>
+                        <SelectItem value="Percussão">Percussão ({slotCounts['Percussão'] || 0}/1)</SelectItem>
                         <SelectItem value="Técnico de Som">Técnico de Som</SelectItem>
                         <SelectItem value="Técnico de Imagem">Técnico de Imagem</SelectItem>
                       </SelectContent>

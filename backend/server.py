@@ -113,33 +113,47 @@ class UnavailabilityDate(BaseModel):
 
 class SongCreate(BaseModel):
     name: str
+    artist: Optional[str] = ""
     original_key: str
     bpm: Optional[int] = None
-    tempo: Optional[str] = ""
+    tempo: str = "4/4"
     tags: List[str] = []
-    links: List[str] = []
+    link_original: Optional[str] = ""
+    link_pt_br: Optional[str] = ""
+    link_intro_arrangement: Optional[str] = ""
     sheet_music_url: Optional[str] = ""
     notes: Optional[str] = ""
 
 class SongUpdate(BaseModel):
     name: Optional[str] = None
+    artist: Optional[str] = None
     original_key: Optional[str] = None
     bpm: Optional[int] = None
     tempo: Optional[str] = None
     tags: Optional[List[str]] = None
-    links: Optional[List[str]] = None
+    link_original: Optional[str] = None
+    link_pt_br: Optional[str] = None
+    link_intro_arrangement: Optional[str] = None
     sheet_music_url: Optional[str] = None
     notes: Optional[str] = None
 
 class ScheduleCreate(BaseModel):
+    name: str
     date: str
     time: str
-    name: str
+    event_type: str = "Domingo"
+    has_choir: bool = False
+    has_orchestra: bool = False
+    status: str = "Rascunho"
 
 class ScheduleUpdate(BaseModel):
+    name: Optional[str] = None
     date: Optional[str] = None
     time: Optional[str] = None
-    name: Optional[str] = None
+    event_type: Optional[str] = None
+    has_choir: Optional[bool] = None
+    has_orchestra: Optional[bool] = None
+    status: Optional[str] = None
 
 class ScheduleMemberAdd(BaseModel):
     volunteer_id: str
@@ -340,6 +354,15 @@ async def create_schedule(schedule: ScheduleCreate, current_user: dict = Depends
     schedule_doc["id"] = str(uuid.uuid4())
     schedule_doc["created_at"] = datetime.now(timezone.utc)
     schedule_doc["created_by"] = current_user["_id"]
+    schedule_doc["team_slots"] = {
+        "Vocal": 6,
+        "Violão": 2,
+        "Guitarra": 2,
+        "Teclado": 2,
+        "Baixo": 1,
+        "Bateria": 1,
+        "Percussão": 1
+    }
     
     await db.schedules.insert_one(schedule_doc)
     schedule_doc.pop("_id", None)
@@ -389,11 +412,55 @@ async def add_schedule_member(schedule_id: str, member: ScheduleMemberAdd, curre
     if not schedule:
         raise HTTPException(status_code=404, detail="Schedule not found")
     
+    # Verificar indisponibilidade
     schedule_date = schedule.get("date", "")
     unavail_dates = volunteer.get("unavailability_dates", [])
     for unavail in unavail_dates:
         if unavail.get("date") == schedule_date:
             return {"warning": f"Voluntário {volunteer['name']} está indisponível nesta data: {unavail.get('reason', 'Sem motivo especificado')}"}
+    
+    # Verificar limite de vagas
+    team_slots = schedule.get("team_slots", {})
+    function_normalized = "Vocal" if "vocal" in member.function.lower() else member.function
+    
+    if function_normalized in team_slots:
+        limit = team_slots[function_normalized]
+        current_count = await db.schedule_members.count_documents({
+            "schedule_id": schedule_id,
+            "function": {"$regex": f"^{function_normalized.replace('ã', '[ãa]').replace('ç', '[çc]')}", "$options": "i"} if function_normalized == "Vocal" else function_normalized
+        })
+        
+        # Contagem mais simples: apenas mesma função exata
+        if function_normalized == "Vocal":
+            current_count = await db.schedule_members.count_documents({
+                "schedule_id": schedule_id,
+                "function": {"$in": ["Vocal", "Backing Vocal"]}
+            })
+        else:
+            current_count = await db.schedule_members.count_documents({
+                "schedule_id": schedule_id,
+                "function": function_normalized
+            })
+        
+        if current_count >= limit:
+            raise HTTPException(
+                status_code=400, 
+                detail=f"Limite de {limit} vaga(s) para {function_normalized} já atingido"
+            )
+    
+    member_doc = {
+        "id": str(uuid.uuid4()),
+        "schedule_id": schedule_id,
+        "volunteer_id": member.volunteer_id,
+        "volunteer_name": volunteer["name"],
+        "function": member.function,
+        "confirmation_status": "Pendente",
+        "created_at": datetime.now(timezone.utc)
+    }
+    
+    await db.schedule_members.insert_one(member_doc)
+    member_doc.pop("_id", None)
+    return member_doc
     
     member_doc = {
         "id": str(uuid.uuid4()),
