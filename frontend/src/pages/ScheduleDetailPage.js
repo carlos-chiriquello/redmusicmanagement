@@ -9,7 +9,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { ArrowLeft, Plus, Trash2, Music, Users, CheckCircle, AlertCircle, Clock, Download, GripVertical, Send, Users2, Music2, ArrowRight } from 'lucide-react';
+import { ArrowLeft, Plus, Trash2, Music, Users, CheckCircle, AlertCircle, Clock, Download, GripVertical, Send, Users2, Music2, ArrowRight, AlertTriangle } from 'lucide-react';
 import { toast } from 'sonner';
 import { DragDropContext, Droppable, Draggable } from 'react-beautiful-dnd';
 import jsPDF from 'jspdf';
@@ -39,12 +39,12 @@ export const ScheduleDetailPage = () => {
   const navigate = useNavigate();
   const [schedule, setSchedule] = useState(null);
   const [volunteers, setVolunteers] = useState([]);
+  const [availableVolunteers, setAvailableVolunteers] = useState([]);
   const [songs, setSongs] = useState([]);
   const [loading, setLoading] = useState(true);
   const [memberDialogOpen, setMemberDialogOpen] = useState(false);
   const [songDialogOpen, setSongDialogOpen] = useState(false);
   const [notifyDialogOpen, setNotifyDialogOpen] = useState(false);
-  const [selectedVolunteer, setSelectedVolunteer] = useState('');
   const [selectedFunction, setSelectedFunction] = useState('Vocal');
   const [selectedSong, setSelectedSong] = useState('');
   const [songKey, setSongKey] = useState('');
@@ -56,14 +56,16 @@ export const ScheduleDetailPage = () => {
 
   const loadData = async () => {
     try {
-      const [scheduleRes, volunteersRes, songsRes] = await Promise.all([
+      const [scheduleRes, volunteersRes, songsRes, availableRes] = await Promise.all([
         axios.get(`${API}/schedules/${id}`, { withCredentials: true }),
         axios.get(`${API}/volunteers`, { withCredentials: true }),
-        axios.get(`${API}/songs`, { withCredentials: true })
+        axios.get(`${API}/songs`, { withCredentials: true }),
+        axios.get(`${API}/schedules/${id}/available-volunteers`, { withCredentials: true })
       ]);
       setSchedule(scheduleRes.data);
       setVolunteers(volunteersRes.data.filter(v => v.status === 'Ativo'));
       setSongs(songsRes.data);
+      setAvailableVolunteers(availableRes.data);
     } catch (error) {
       toast.error('Erro ao carregar dados');
       navigate('/schedules');
@@ -72,12 +74,11 @@ export const ScheduleDetailPage = () => {
     }
   };
 
-  const addMember = async () => {
-    if (!selectedVolunteer) return;
+  const addMemberByCard = async (volunteerId) => {
     try {
       const res = await axios.post(
         `${API}/schedules/${id}/members`,
-        { volunteer_id: selectedVolunteer, function: selectedFunction },
+        { volunteer_id: volunteerId, function: selectedFunction },
         { withCredentials: true }
       );
       if (res.data.warning) {
@@ -86,11 +87,13 @@ export const ScheduleDetailPage = () => {
         toast.success('Membro adicionado à escala');
       }
       loadData();
-      setMemberDialogOpen(false);
-      setSelectedVolunteer('');
     } catch (error) {
       toast.error(error.response?.data?.detail || 'Erro ao adicionar membro');
     }
+  };
+
+  const addMember = async () => {
+    // Deprecated - substituído por addMemberByCard
   };
 
   const updateScheduleStatus = async (newStatus) => {
@@ -425,26 +428,13 @@ export const ScheduleDetailPage = () => {
                   Adicionar Membro
                 </Button>
               </DialogTrigger>
-              <DialogContent>
+              <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
                 <DialogHeader>
                   <DialogTitle>Adicionar Membro à Escala</DialogTitle>
                 </DialogHeader>
                 <div className="space-y-4">
                   <div>
-                    <Label>Voluntário</Label>
-                    <Select value={selectedVolunteer} onValueChange={setSelectedVolunteer}>
-                      <SelectTrigger data-testid="select-volunteer">
-                        <SelectValue placeholder="Selecione um voluntário" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {volunteers.map(v => (
-                          <SelectItem key={v.id} value={v.id}>{v.name}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div>
-                    <Label>Função</Label>
+                    <Label>Função *</Label>
                     <Select value={selectedFunction} onValueChange={setSelectedFunction}>
                       <SelectTrigger data-testid="select-function">
                         <SelectValue />
@@ -463,13 +453,70 @@ export const ScheduleDetailPage = () => {
                       </SelectContent>
                     </Select>
                   </div>
-                  <Button
-                    onClick={addMember}
-                    className="w-full bg-[#c72137] hover:bg-[#cf3f57]"
-                    data-testid="confirm-add-member"
-                  >
-                    Adicionar
-                  </Button>
+
+                  <div>
+                    <Label className="text-sm font-medium mb-2 block">
+                      Voluntários Disponíveis {availableVolunteers.length > 0 && `(${availableVolunteers.length})`}
+                    </Label>
+                    {availableVolunteers.length === 0 ? (
+                      <div className="text-center py-8 bg-[#fcf7f6] rounded-lg">
+                        <p className="text-sm text-[#6b7280]">Nenhum voluntário disponível para esta data</p>
+                      </div>
+                    ) : (
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 max-h-[400px] overflow-y-auto pr-2">
+                        {availableVolunteers
+                          .filter(v => {
+                            if (selectedFunction === 'Técnico de Som' || selectedFunction === 'Técnico de Imagem') return true;
+                            const funcNormalized = selectedFunction.includes('Vocal') ? 'Vocal' : selectedFunction;
+                            return !v.instruments || v.instruments.length === 0 || v.instruments.includes(funcNormalized);
+                          })
+                          .map(vol => {
+                            const alreadyAdded = schedule?.members?.some(m => m.volunteer_id === vol.id && m.function === selectedFunction);
+                            return (
+                              <button
+                                key={vol.id}
+                                type="button"
+                                disabled={alreadyAdded}
+                                onClick={() => addMemberByCard(vol.id)}
+                                data-testid={`volunteer-card-${vol.id}`}
+                                className={`p-3 border rounded-lg text-left transition-all ${
+                                  alreadyAdded
+                                    ? 'bg-gray-100 border-gray-300 opacity-60 cursor-not-allowed'
+                                    : 'border-[#e28b95]/30 hover:border-[#c72137] hover:bg-[#fcf7f6] cursor-pointer'
+                                }`}
+                              >
+                                <div className="flex items-start gap-3">
+                                  {vol.photo_url ? (
+                                    <img src={vol.photo_url} alt={vol.name} className="w-12 h-12 rounded-full object-cover flex-shrink-0" />
+                                  ) : (
+                                    <div className="w-12 h-12 rounded-full bg-[#f7e1e1] flex items-center justify-center text-[#c72137] font-bold flex-shrink-0">
+                                      {vol.name.charAt(0)}
+                                    </div>
+                                  )}
+                                  <div className="flex-1 min-w-0">
+                                    <p className="font-semibold text-[#111111] text-sm truncate">{vol.name}</p>
+                                    {vol.instruments && vol.instruments.length > 0 && (
+                                      <p className="text-xs text-[#6b7280] truncate">{vol.instruments.join(', ')}</p>
+                                    )}
+                                    <div className="flex items-center gap-1 mt-1 flex-wrap">
+                                      {vol.is_exhausted && (
+                                        <Badge className="bg-yellow-100 text-yellow-800 hover:bg-yellow-100 text-xs" data-testid={`exhaustion-alert-${vol.id}`}>
+                                          <AlertTriangle className="w-3 h-3 mr-1" />
+                                          {vol.monthly_schedule_count}x no mês
+                                        </Badge>
+                                      )}
+                                      {alreadyAdded && (
+                                        <Badge className="bg-gray-200 text-gray-700 text-xs">Já escalado</Badge>
+                                      )}
+                                    </div>
+                                  </div>
+                                </div>
+                              </button>
+                            );
+                          })}
+                      </div>
+                    )}
+                  </div>
                 </div>
               </DialogContent>
             </Dialog>
@@ -566,7 +613,7 @@ export const ScheduleDetailPage = () => {
                 </DialogHeader>
                 <div className="space-y-4">
                   <div>
-                    <Label>Música</Label>
+                    <Label>Música *</Label>
                     <Select value={selectedSong} onValueChange={(v) => {
                       setSelectedSong(v);
                       const song = songs.find(s => s.id === v);
@@ -585,20 +632,33 @@ export const ScheduleDetailPage = () => {
                     </Select>
                   </div>
                   <div>
-                    <Label>Tom para este evento</Label>
-                    <Input
-                      value={songKey}
-                      onChange={(e) => setSongKey(e.target.value)}
-                      placeholder="Ex: C, D, Em"
-                      data-testid="song-key-input"
-                    />
+                    <Label>
+                      Tom para este evento
+                      {selectedSong && songs.find(s => s.id === selectedSong) && (
+                        <span className="ml-2 text-xs text-[#6b7280]">
+                          (Original: {songs.find(s => s.id === selectedSong).original_key})
+                        </span>
+                      )}
+                    </Label>
+                    <Select value={songKey} onValueChange={setSongKey}>
+                      <SelectTrigger data-testid="song-key-input">
+                        <SelectValue placeholder="Selecione o tom" />
+                      </SelectTrigger>
+                      <SelectContent className="max-h-64">
+                        {['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B',
+                          'Cm', 'C#m', 'Dm', 'D#m', 'Em', 'Fm', 'F#m', 'Gm', 'G#m', 'Am', 'A#m', 'Bm'].map(k => (
+                          <SelectItem key={k} value={k}>{k}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <p className="text-xs text-[#6b7280] mt-1">Herda o tom original. Você pode alterar apenas para este evento sem modificar o cadastro da música.</p>
                   </div>
-                  {vocals.length > 0 && (
+                  {vocals.length > 0 ? (
                     <div>
-                      <Label>Vocal Principal</Label>
+                      <Label>Vocal Principal (quem irá ministrar) *</Label>
                       <Select value={mainVocal} onValueChange={setMainVocal}>
                         <SelectTrigger data-testid="select-main-vocal">
-                          <SelectValue placeholder="Selecione o vocal" />
+                          <SelectValue placeholder="Selecione o vocal escalado" />
                         </SelectTrigger>
                         <SelectContent>
                           {vocals.map(v => (
@@ -608,6 +668,11 @@ export const ScheduleDetailPage = () => {
                           ))}
                         </SelectContent>
                       </Select>
+                      <p className="text-xs text-[#6b7280] mt-1">Apenas vocais escalados nesta escala aparecem aqui.</p>
+                    </div>
+                  ) : (
+                    <div className="p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
+                      <p className="text-sm text-yellow-800">Nenhum vocal escalado ainda. Adicione vocais na aba "Equipe" antes de definir o vocal principal.</p>
                     </div>
                   )}
                   <Button
@@ -652,10 +717,17 @@ export const ScheduleDetailPage = () => {
                                   </div>
                                   <div>
                                     <p className="font-semibold text-[#111111]">{song.song_name}</p>
-                                    <div className="flex items-center gap-4 text-sm text-[#6b7280] mt-1">
-                                      <span>Tom: {song.key_for_this_event}</span>
-                                      <span>•</span>
-                                      <span>Vocal: {vocalName}</span>
+                                    <div className="flex items-center gap-3 text-sm mt-1 flex-wrap">
+                                      <div className="flex items-center gap-1">
+                                        <span className={`font-bold ${song.key_for_this_event !== song.original_key ? 'text-[#c72137]' : 'text-[#111111]'}`}>
+                                          Tom: {song.key_for_this_event}
+                                        </span>
+                                        {song.key_for_this_event !== song.original_key && (
+                                          <span className="text-xs text-[#6b7280]">(Original: {song.original_key})</span>
+                                        )}
+                                      </div>
+                                      <span className="text-[#6b7280]">•</span>
+                                      <span className="text-[#6b7280]">Vocal: {vocalName}</span>
                                     </div>
                                   </div>
                                 </div>

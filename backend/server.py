@@ -66,6 +66,7 @@ async def get_current_user(request: Request) -> dict:
         if not user:
             raise HTTPException(status_code=401, detail="User not found")
         user["_id"] = str(user["_id"])
+        user["id"] = user["_id"]
         user.pop("password_hash", None)
         return user
     except jwt.ExpiredSignatureError:
@@ -145,6 +146,18 @@ class ScheduleCreate(BaseModel):
     has_choir: bool = False
     has_orchestra: bool = False
     status: str = "Rascunho"
+
+class ScheduleBatchCreate(BaseModel):
+    dates: List[str]
+    time: str = "19:00"
+    event_type: str = "Domingo"
+    name_prefix: str = "Culto"
+    has_choir: bool = False
+    has_orchestra: bool = False
+
+class AvailabilityMark(BaseModel):
+    schedule_id: str
+    available: bool
 
 class ScheduleUpdate(BaseModel):
     name: Optional[str] = None
@@ -355,18 +368,130 @@ async def create_schedule(schedule: ScheduleCreate, current_user: dict = Depends
     schedule_doc["created_at"] = datetime.now(timezone.utc)
     schedule_doc["created_by"] = current_user["_id"]
     schedule_doc["team_slots"] = {
-        "Vocal": 6,
-        "Violão": 2,
-        "Guitarra": 2,
-        "Teclado": 2,
-        "Baixo": 1,
-        "Bateria": 1,
-        "Percussão": 1
+        "Vocal": 6, "Violão": 2, "Guitarra": 2, "Teclado": 2,
+        "Baixo": 1, "Bateria": 1, "Percussão": 1
     }
     
     await db.schedules.insert_one(schedule_doc)
     schedule_doc.pop("_id", None)
     return schedule_doc
+
+@api_router.post("/schedules/batch")
+async def create_schedules_batch(batch: ScheduleBatchCreate, current_user: dict = Depends(get_current_user)):
+    from dateutil import parser as dateparser
+    today = datetime.now(timezone.utc).date()
+    created = []
+    skipped = []
+    
+    for date_str in batch.dates:
+        try:
+            date_obj = dateparser.parse(date_str).date()
+        except Exception:
+            skipped.append({"date": date_str, "reason": "invalid_date"})
+            continue
+        
+        if date_obj < today:
+            skipped.append({"date": date_str, "reason": "past_date"})
+            continue
+        
+        weekday_names_pt = ["Segunda", "Terça", "Quarta", "Quinta", "Sexta", "Sábado", "Domingo"]
+        weekday = weekday_names_pt[date_obj.weekday()]
+        
+        schedule_doc = {
+            "id": str(uuid.uuid4()),
+            "name": f"{batch.name_prefix} - {date_obj.strftime('%d/%m/%Y')}",
+            "date": date_obj.isoformat(),
+            "time": batch.time,
+            "event_type": batch.event_type,
+            "has_choir": batch.has_choir,
+            "has_orchestra": batch.has_orchestra,
+            "status": "Disponibilidade",
+            "created_at": datetime.now(timezone.utc),
+            "created_by": current_user["_id"],
+            "team_slots": {
+                "Vocal": 6, "Violão": 2, "Guitarra": 2, "Teclado": 2,
+                "Baixo": 1, "Bateria": 1, "Percussão": 1
+            }
+        }
+        await db.schedules.insert_one(schedule_doc)
+        schedule_doc.pop("_id", None)
+        created.append(schedule_doc)
+    
+    return {"created": created, "skipped": skipped, "total_created": len(created)}
+
+@api_router.post("/schedules/{schedule_id}/availability")
+async def mark_availability(schedule_id: str, mark: AvailabilityMark, current_user: dict = Depends(get_current_user)):
+    schedule = await db.schedules.find_one({"id": schedule_id}, {"_id": 0})
+    if not schedule:
+        raise HTTPException(status_code=404, detail="Schedule not found")
+    
+    # Encontrar o voluntário associado a este usuário (por email)
+    volunteer = await db.volunteers.find_one({"email": current_user["email"]}, {"_id": 0})
+    if not volunteer:
+        raise HTTPException(status_code=404, detail="Voluntário não encontrado para este usuário")
+    
+    await db.availability.update_one(
+        {"schedule_id": schedule_id, "volunteer_id": volunteer["id"]},
+        {"$set": {
+            "schedule_id": schedule_id,
+            "volunteer_id": volunteer["id"],
+            "volunteer_name": volunteer["name"],
+            "available": mark.available,
+            "marked_at": datetime.now(timezone.utc)
+        }},
+        upsert=True
+    )
+    return {"message": "Disponibilidade registrada"}
+
+@api_router.get("/schedules/{schedule_id}/available-volunteers")
+async def get_available_volunteers_for_schedule(schedule_id: str, current_user: dict = Depends(get_current_user)):
+    schedule = await db.schedules.find_one({"id": schedule_id}, {"_id": 0})
+    if not schedule:
+        raise HTTPException(status_code=404, detail="Schedule not found")
+    
+    schedule_date = schedule.get("date", "")
+    
+    availabilities = await db.availability.find({"schedule_id": schedule_id, "available": True}, {"_id": 0}).to_list(1000)
+    available_ids = [a["volunteer_id"] for a in availabilities]
+    
+    all_volunteers = await db.volunteers.find({"status": "Ativo"}, {"_id": 0}).to_list(1000)
+    
+    result = []
+    for vol in all_volunteers:
+        is_unavailable = any(u.get("date") == schedule_date for u in vol.get("unavailability_dates", []))
+        if is_unavailable:
+            continue
+        
+        has_availability_records = len(availabilities) > 0
+        if has_availability_records and vol["id"] not in available_ids:
+            continue
+        
+        # Contar escalas no mês
+        year_month = schedule_date[:7] if schedule_date else ""
+        monthly_count = 0
+        if year_month:
+            monthly_members = await db.schedule_members.find({"volunteer_id": vol["id"]}, {"_id": 0}).to_list(1000)
+            for m in monthly_members:
+                m_schedule = await db.schedules.find_one({"id": m["schedule_id"]}, {"_id": 0})
+                if m_schedule and m_schedule.get("date", "").startswith(year_month) and m_schedule.get("status") in ["Em Validação", "Fechada"]:
+                    monthly_count += 1
+        
+        vol["monthly_schedule_count"] = monthly_count
+        vol["is_exhausted"] = monthly_count >= 2
+        vol["explicitly_available"] = vol["id"] in available_ids
+        result.append(vol)
+    
+    return result
+
+@api_router.get("/volunteers/{volunteer_id}/monthly-count/{year_month}")
+async def get_volunteer_monthly_count(volunteer_id: str, year_month: str, current_user: dict = Depends(get_current_user)):
+    members = await db.schedule_members.find({"volunteer_id": volunteer_id}, {"_id": 0}).to_list(1000)
+    count = 0
+    for m in members:
+        m_schedule = await db.schedules.find_one({"id": m["schedule_id"]}, {"_id": 0})
+        if m_schedule and m_schedule.get("date", "").startswith(year_month) and m_schedule.get("status") in ["Em Validação", "Fechada"]:
+            count += 1
+    return {"volunteer_id": volunteer_id, "year_month": year_month, "count": count}
 
 @api_router.get("/schedules")
 async def get_schedules(current_user: dict = Depends(get_current_user)):
