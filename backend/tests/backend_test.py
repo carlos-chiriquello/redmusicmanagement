@@ -83,6 +83,7 @@ class TestSchedulesBatch:
             "dates": [fut1, past, fut2],
             "time": "19:00",
             "event_type": "Domingo",
+            "ministry": "Pulse Music",
             "name_prefix": "TEST Culto",
         })
         assert r.status_code == 200, r.text
@@ -90,12 +91,131 @@ class TestSchedulesBatch:
         assert len(data["created"]) == 2
         assert len(data["skipped"]) == 1
         assert data["skipped"][0]["reason"] == "past_date"
+        share_tokens = set()
         for s in data["created"]:
-            assert s["status"] == "Disponibilidade"
+            assert s["status"] == "Rascunho"
+            assert s["ministry"] == "Pulse Music"
+            assert "share_token" in s and s["share_token"]
+            share_tokens.add(s["share_token"])
             assert "team_slots" in s and s["team_slots"]["Vocal"] == 6
+        assert len(share_tokens) == 2, "share_tokens must be unique"
         # cleanup
         for s in data["created"]:
             session.delete(f"{API}/schedules/{s['id']}")
+
+
+# ---------- Iteration 3: Ministry + share_token + public endpoint + validated ----------
+class TestMinistryAndPublicShare:
+    def test_create_schedule_has_ministry_and_share_token(self, session):
+        today = date.today()
+        r = session.post(f"{API}/schedules", json={
+            "name": "TEST Ministry",
+            "date": (today + timedelta(days=30)).isoformat(),
+            "time": "19:00",
+            "event_type": "Domingo",
+            "ministry": "Pulse Music",
+        })
+        assert r.status_code == 200, r.text
+        s = r.json()
+        try:
+            assert s.get("ministry") == "Pulse Music"
+            assert s.get("share_token"), "share_token must be auto-generated"
+            assert s.get("status") == "Rascunho"
+        finally:
+            session.delete(f"{API}/schedules/{s['id']}")
+
+    def test_create_schedule_default_ministry_red_music(self, session):
+        today = date.today()
+        r = session.post(f"{API}/schedules", json={
+            "name": "TEST Default Ministry",
+            "date": (today + timedelta(days=31)).isoformat(),
+            "time": "19:00",
+        })
+        s = r.json()
+        try:
+            assert s.get("ministry") == "Red Music"
+        finally:
+            session.delete(f"{API}/schedules/{s['id']}")
+
+    def test_get_schedules_backfills_share_token_and_ministry(self, session):
+        r = session.get(f"{API}/schedules")
+        assert r.status_code == 200
+        schedules = r.json()
+        for s in schedules:
+            assert s.get("share_token"), f"schedule {s.get('id')} missing share_token after backfill"
+            assert s.get("ministry"), f"schedule {s.get('id')} missing ministry after backfill"
+
+    def test_public_endpoint_no_auth(self, session):
+        today = date.today()
+        # Create schedule
+        r = session.post(f"{API}/schedules", json={
+            "name": "TEST Public",
+            "date": (today + timedelta(days=33)).isoformat(),
+            "time": "19:00",
+            "ministry": "Red Music",
+        })
+        sched = r.json()
+        token = sched["share_token"]
+        # Create a song and add to setlist
+        song_r = session.post(f"{API}/songs", json={
+            "name": "TEST Song Public",
+            "artist": "TEST Artist",
+            "original_key": "G",
+            "bpm": 120,
+            "tempo": "4/4",
+            "link_original": "https://youtube.com/orig",
+            "link_pt_br": "https://youtube.com/ptbr",
+            "link_intro_arrangement": "https://youtube.com/intro",
+            "notes": "test notes",
+        })
+        song = song_r.json()
+        session.post(f"{API}/setlists/{sched['id']}/songs", json={
+            "song_id": song["id"],
+            "key_for_this_event": "A",
+            "order": 1,
+        })
+        try:
+            # Call public endpoint WITHOUT auth
+            anon = requests.Session()
+            rr = anon.get(f"{API}/public/schedules/{token}")
+            assert rr.status_code == 200, f"public endpoint failed: {rr.status_code} {rr.text}"
+            data = rr.json()
+            assert data["id"] == sched["id"]
+            assert data["ministry"] == "Red Music"
+            assert "members" in data
+            assert "setlist" in data
+            assert len(data["setlist"]) == 1
+            entry = data["setlist"][0]
+            assert "song_full" in entry, "setlist entry must have song_full enriched"
+            sf = entry["song_full"]
+            for f in ["artist", "bpm", "tempo", "link_original", "link_pt_br", "link_intro_arrangement", "notes"]:
+                assert f in sf, f"song_full missing {f}"
+            assert sf["artist"] == "TEST Artist"
+            assert sf["bpm"] == 120
+        finally:
+            session.delete(f"{API}/songs/{song['id']}")
+            session.delete(f"{API}/schedules/{sched['id']}")
+
+    def test_public_endpoint_invalid_token_404(self):
+        anon = requests.Session()
+        r = anon.get(f"{API}/public/schedules/invalid-token-nonexistent-xyz")
+        assert r.status_code == 404
+
+    def test_update_schedule_status_validado(self, session):
+        today = date.today()
+        r = session.post(f"{API}/schedules", json={
+            "name": "TEST Validado",
+            "date": (today + timedelta(days=34)).isoformat(),
+            "time": "19:00",
+        })
+        sched = r.json()
+        try:
+            rr = session.put(f"{API}/schedules/{sched['id']}", json={"status": "Validado"})
+            assert rr.status_code == 200, rr.text
+            updated = rr.json()
+            assert updated["status"] == "Validado"
+        finally:
+            session.delete(f"{API}/schedules/{sched['id']}")
 
 
 # ---------- Availability & Exhaustion ----------

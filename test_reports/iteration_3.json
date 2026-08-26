@@ -1,0 +1,57 @@
+{
+  "summary": "Iteration 3 testing: Ministry structure (Red Music / Pulse Music), share_token auto-generation + backfill, public read-only endpoint, Monthly Grid view with strict category order (Vocais > Violões > Guitarras > Teclados > Baixo > Percussão > Bateria), 'Marcar como Validado' button, share link. Backend: 18/18 pytest passed (12 legacy + 6 new). Frontend: All new iteration 3 flows verified via Playwright.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "server.py add_schedule_member (lines 638-650)", "issue": "Dead code block still present after early return on line 636 (previously reported in iteration_1). Unreachable duplicate insert."},
+      {"endpoint": "POST /api/notifications/send", "issue": "RESEND_API_KEY not set -> email_sent=false (MOCKED, expected per review_request)."},
+      {"endpoint": "GET /api/schedules and /api/volunteers", "issue": "Backfill logic runs on every read (write-on-read side effect). Should be a one-time startup migration."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Dialogs (Adicionar Membro, Batch Schedules)", "issues": ["Radix warning: 'Missing Description or aria-describedby' for DialogContent - still present from iteration_2."]}
+    ]
+  },
+  "verified_features": [
+    "POST /api/schedules: accepts 'ministry' field (default 'Red Music', accepts 'Pulse Music'), auto-generates share_token (UUID).",
+    "POST /api/schedules/batch: accepts 'ministry', creates all schedules with status='Rascunho' and UNIQUE share_token per schedule (verified via set assertion).",
+    "GET /api/schedules: backfills share_token and ministry='Red Music' for legacy documents (all schedules have both fields after call).",
+    "GET /api/public/schedules/{token}: works WITHOUT auth (anonymous requests.Session). Returns schedule with members + setlist. Each setlist entry has 'song_full' with artist, bpm, tempo, link_original, link_pt_br, link_intro_arrangement, notes.",
+    "GET /api/public/schedules/{invalid_token}: returns 404 with detail message.",
+    "PUT /api/schedules/{id} with {status:'Validado'}: 200 OK, status persisted.",
+    "FRONTEND /schedules: Toggle Lista <-> Grade Mensal works (data-testid view-mode-list / view-mode-grid).",
+    "FRONTEND Monthly Grid: 9 schedule columns rendered, each with strict category order ['Vocais','Violões','Guitarras','Teclados','Baixo','Percussão','Bateria'] verified programmatically. Percussão BEFORE Bateria as required.",
+    "FRONTEND Monthly Grid: Empty slots render as '—' dashed placeholders (SLOT_LIMITS map).",
+    "FRONTEND ScheduleDetailPage: red ministry badge shown in header ('Red Music' visible), status badge 'Rascunho' shown.",
+    "FRONTEND: GREEN 'Marcar como Validado' button present when status != Validado (data-testid inferred by text; button confirmed).",
+    "FRONTEND: 'Compartilhar' button (data-testid=share-button) present.",
+    "FRONTEND /public/schedule/{share_token}: loads WITHOUT login in incognito context. Shows Somente Leitura badge, Red Music badge, title, setlist card with song_full data (BPM, tempo, key transposition indicator 'Tom: A (Original: G)', notes)."
+  ],
+  "test_report_links": [
+    "/app/backend/tests/backend_test.py",
+    "/app/test_reports/pytest/pytest_results.xml"
+  ],
+  "action_items": [
+    "(Optional) Remove dead code block in server.py add_schedule_member lines 638-650.",
+    "(Optional) Add <DialogDescription /> to Radix Dialogs to silence a11y warning.",
+    "(Optional) Move backfill (share_token/ministry/volunteer.id) to startup migration instead of write-on-read."
+  ],
+  "critical_code_review_comments": [
+    "SchedulesPage.js is likely >300 lines managing multiple concerns (list, grid, batch dialog, new schedule form) - consider splitting.",
+    "PublicSchedulePage uses hardcoded LOGO_URL constant - should come from a shared config.",
+    "server.py get_schedules performs N update_one writes for every read call (backfill loop) - impacts latency at scale."
+  ],
+  "updated_files": [
+    "/app/backend/tests/backend_test.py (added TestMinistryAndPublicShare class with 6 tests, updated batch test to assert status='Rascunho' + ministry + unique share_tokens)"
+  ],
+  "success_rate": {"backend": "100% (18/18)", "frontend": "100% of iteration 3 flows"},
+  "test_credentials": "admin@redmusic.com / Admin@2026",
+  "seed_data_creation": "Test-scoped only: schedules 'TEST Ministry', 'TEST Public', 'TEST Validado' and TEST song 'TEST Song Public' created and deleted within tests.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "backend_test.py now has 18 pytest tests including iteration 3 (TestMinistryAndPublicShare). Public endpoint verified unauthenticated. Monthly grid category order strictly enforced. Existing schedule id used for detail test: e864135c-c909-4db1-97d2-53eb908bed52 with share_token=899555cc-6496-4f4f-89a1-9bf072b1883b.",
+  "rca of the issue": "N/A - all iteration 3 features working as spec'd. Known MOCKED item: RESEND_API_KEY empty (email_sent=false) - documented in review_request."
+}

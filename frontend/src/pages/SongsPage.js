@@ -152,7 +152,7 @@ export const SongsPage = () => {
                   <Input
                     value={formData.artist}
                     onChange={(e) => setFormData({...formData, artist: e.target.value})}
-                    placeholder="Ex: Hillsong, Fernandinho..."
+                    placeholder="Ex: Hillsong, Elevation..."
                     data-testid="song-artist-input"
                   />
                 </div>
@@ -218,7 +218,7 @@ export const SongsPage = () => {
                   />
                 </div>
                 <div>
-                  <Label>Link Introdução/Arranjo</Label>
+                  <Label>Link Adicional (opcional)</Label>
                   <Input
                     value={formData.link_intro_arrangement}
                     onChange={(e) => setFormData({...formData, link_intro_arrangement: e.target.value})}
@@ -229,11 +229,11 @@ export const SongsPage = () => {
               </div>
 
               <div>
-                <Label>Cifra (URL do PDF)</Label>
+                <Label>Link do Multitracks (opicional)</Label>
                 <Input
                   value={formData.sheet_music_url}
                   onChange={(e) => setFormData({...formData, sheet_music_url: e.target.value})}
-                  placeholder="URL do PDF da cifra"
+                  placeholder="Link da música no Multitracks"
                   data-testid="song-sheet-input"
                 />
               </div>

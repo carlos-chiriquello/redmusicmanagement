@@ -9,7 +9,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { ArrowLeft, Plus, Trash2, Music, Users, CheckCircle, AlertCircle, Clock, Download, GripVertical, Send, Users2, Music2, ArrowRight, AlertTriangle } from 'lucide-react';
+import { ArrowLeft, Plus, Trash2, Music, Users, CheckCircle, AlertCircle, Clock, Download, GripVertical, Send, Users2, Music2, ArrowRight, AlertTriangle, Share2, ExternalLink, Copy } from 'lucide-react';
 import { toast } from 'sonner';
 import { DragDropContext, Droppable, Draggable } from 'react-beautiful-dnd';
 import jsPDF from 'jspdf';
@@ -21,6 +21,7 @@ const STATUS_COLORS = {
   'Disponibilidade': 'bg-blue-100 text-blue-800',
   'Rascunho': 'bg-yellow-100 text-yellow-800',
   'Em Validação': 'bg-orange-100 text-orange-800',
+  'Validado': 'bg-green-100 text-green-800',
   'Fechada': 'bg-green-100 text-green-800'
 };
 
@@ -30,8 +31,8 @@ const SLOT_LIMITS = {
   'Guitarra': 2,
   'Teclado': 2,
   'Baixo': 1,
-  'Bateria': 1,
-  'Percussão': 1
+  'Percussão': 1,
+  'Bateria': 1
 };
 
 export const ScheduleDetailPage = () => {
@@ -122,6 +123,19 @@ export const ScheduleDetailPage = () => {
     } catch (error) {
       toast.error('Erro ao atualizar status');
     }
+  };
+
+  const copyShareLink = () => {
+    if (!schedule?.share_token) {
+      toast.error('Token de compartilhamento indisponível');
+      return;
+    }
+    const url = `${window.location.origin}/public/schedule/${schedule.share_token}`;
+    navigator.clipboard.writeText(url).then(() => {
+      toast.success('Link público copiado! Compartilhe com a equipe.');
+    }).catch(() => {
+      toast.error('Não foi possível copiar. Link: ' + url);
+    });
   };
 
   const removeMember = async (memberId) => {
@@ -324,6 +338,11 @@ export const ScheduleDetailPage = () => {
           </Button>
           <div>
             <div className="flex items-center gap-2 flex-wrap">
+              {schedule?.ministry && (
+                <Badge className="bg-[#c72137] text-white hover:bg-[#c72137] text-sm font-bold" data-testid="ministry-badge">
+                  {schedule.ministry}
+                </Badge>
+              )}
               <h1 className="text-3xl font-bold text-[#111111] tracking-tight">{schedule?.name}</h1>
               <Badge className={`${STATUS_COLORS[currentStatus]} hover:${STATUS_COLORS[currentStatus]}`}>
                 {currentStatus}
@@ -352,17 +371,26 @@ export const ScheduleDetailPage = () => {
           </div>
         </div>
         <div className="flex gap-2 flex-wrap">
-          {nextStatus && currentStatus !== 'Fechada' && (
+          {currentStatus !== 'Validado' && (
             <Button
               variant="outline"
-              onClick={() => updateScheduleStatus(nextStatus)}
-              className="border-[#c72137] text-[#c72137] hover:bg-[#f7e1e1]"
-              data-testid="advance-status-button"
+              onClick={() => updateScheduleStatus('Validado')}
+              className="border-green-600 text-green-700 hover:bg-green-50"
+              data-testid="validate-button"
             >
-              <ArrowRight className="w-4 h-4 mr-2" />
-              Avançar para {nextStatus}
+              <CheckCircle className="w-4 h-4 mr-2" />
+              Marcar como Validado
             </Button>
           )}
+          <Button
+            variant="outline"
+            onClick={copyShareLink}
+            className="border-[#c72137] text-[#c72137] hover:bg-[#f7e1e1]"
+            data-testid="share-button"
+          >
+            <Share2 className="w-4 h-4 mr-2" />
+            Compartilhar
+          </Button>
           <Dialog open={notifyDialogOpen} onOpenChange={setNotifyDialogOpen}>
             <DialogTrigger asChild>
               <Button variant="outline" className="border-[#c72137] text-[#c72137] hover:bg-[#f7e1e1]" data-testid="notify-button">
@@ -588,12 +616,6 @@ export const ScheduleDetailPage = () => {
                               Confirmado
                             </div>
                           </SelectItem>
-                          <SelectItem value="Preciso de Substituto">
-                            <div className="flex items-center gap-2">
-                              <AlertCircle className="w-4 h-4 text-red-600" />
-                              Preciso de Substituto
-                            </div>
-                          </SelectItem>
                         </SelectContent>
                       </Select>
                       <Badge
@@ -733,9 +755,15 @@ export const ScheduleDetailPage = () => {
                                   <div className="w-8 h-8 rounded-full bg-[#c72137] text-white flex items-center justify-center font-bold text-sm">
                                     {index + 1}
                                   </div>
-                                  <div>
-                                    <p className="font-semibold text-[#111111]">{song.song_name}</p>
-                                    <div className="flex items-center gap-3 text-sm mt-1 flex-wrap">
+                                  <div className="flex-1">
+                                    <div className="flex items-center gap-2 flex-wrap mb-1">
+                                      <p className="font-semibold text-[#111111] text-base">{song.song_name}</p>
+                                      {(() => {
+                                        const fullSong = songs.find(s => s.id === song.song_id);
+                                        return fullSong?.artist ? <span className="text-xs text-[#6b7280]">— {fullSong.artist}</span> : null;
+                                      })()}
+                                    </div>
+                                    <div className="flex items-center gap-3 text-sm flex-wrap">
                                       <div className="flex items-center gap-1">
                                         <span className={`font-bold ${song.key_for_this_event !== song.original_key ? 'text-[#c72137]' : 'text-[#111111]'}`}>
                                           Tom: {song.key_for_this_event}
@@ -744,9 +772,36 @@ export const ScheduleDetailPage = () => {
                                           <span className="text-xs text-[#6b7280]">(Original: {song.original_key})</span>
                                         )}
                                       </div>
-                                      <span className="text-[#6b7280]">•</span>
-                                      <span className="text-[#6b7280]">Vocal: {vocalName}</span>
+                                      {(() => {
+                                        const fullSong = songs.find(s => s.id === song.song_id);
+                                        return (
+                                          <>
+                                            {fullSong?.bpm && <><span className="text-[#6b7280]">•</span><span className="text-[#6b7280]">{fullSong.bpm} BPM</span></>}
+                                            {fullSong?.tempo && <><span className="text-[#6b7280]">•</span><span className="text-[#6b7280]">{fullSong.tempo}</span></>}
+                                          </>
+                                        );
+                                      })()}
                                     </div>
+                                    <p className="text-sm text-[#6b7280] mt-1">Vocal: <span className="font-medium text-[#111111]">{vocalName}</span></p>
+                                    {(() => {
+                                      const fullSong = songs.find(s => s.id === song.song_id);
+                                      if (!fullSong) return null;
+                                      const hasAnyLink = fullSong.link_original || fullSong.link_pt_br || fullSong.link_intro_arrangement;
+                                      return (
+                                        <>
+                                          {hasAnyLink && (
+                                            <div className="flex gap-3 mt-2 flex-wrap">
+                                              {fullSong.link_original && <a href={fullSong.link_original} target="_blank" rel="noopener noreferrer" className="text-xs text-[#c72137] hover:underline flex items-center gap-1" data-testid={`setlist-link-orig-${song.id}`}><ExternalLink className="w-3 h-3" />Original</a>}
+                                              {fullSong.link_pt_br && <a href={fullSong.link_pt_br} target="_blank" rel="noopener noreferrer" className="text-xs text-[#c72137] hover:underline flex items-center gap-1" data-testid={`setlist-link-ptbr-${song.id}`}><ExternalLink className="w-3 h-3" />PT-BR</a>}
+                                              {fullSong.link_intro_arrangement && <a href={fullSong.link_intro_arrangement} target="_blank" rel="noopener noreferrer" className="text-xs text-[#c72137] hover:underline flex items-center gap-1" data-testid={`setlist-link-intro-${song.id}`}><ExternalLink className="w-3 h-3" />Arranjo</a>}
+                                            </div>
+                                          )}
+                                          {fullSong.notes && (
+                                            <p className="text-xs text-[#6b7280] mt-2 italic border-l-2 border-[#e28b95]/40 pl-2" data-testid={`setlist-notes-${song.id}`}>{fullSong.notes}</p>
+                                          )}
+                                        </>
+                                      );
+                                    })()}
                                   </div>
                                 </div>
                                 <Button

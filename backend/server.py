@@ -143,6 +143,7 @@ class ScheduleCreate(BaseModel):
     date: str
     time: str
     event_type: str = "Domingo"
+    ministry: str = "Red Music"
     has_choir: bool = False
     has_orchestra: bool = False
     status: str = "Rascunho"
@@ -151,6 +152,7 @@ class ScheduleBatchCreate(BaseModel):
     dates: List[str]
     time: str = "19:00"
     event_type: str = "Domingo"
+    ministry: str = "Red Music"
     name_prefix: str = "Culto"
     has_choir: bool = False
     has_orchestra: bool = False
@@ -164,6 +166,7 @@ class ScheduleUpdate(BaseModel):
     date: Optional[str] = None
     time: Optional[str] = None
     event_type: Optional[str] = None
+    ministry: Optional[str] = None
     has_choir: Optional[bool] = None
     has_orchestra: Optional[bool] = None
     status: Optional[str] = None
@@ -370,6 +373,7 @@ async def delete_song(song_id: str, current_user: dict = Depends(get_current_use
 async def create_schedule(schedule: ScheduleCreate, current_user: dict = Depends(get_current_user)):
     schedule_doc = schedule.model_dump()
     schedule_doc["id"] = str(uuid.uuid4())
+    schedule_doc["share_token"] = str(uuid.uuid4())
     schedule_doc["created_at"] = datetime.now(timezone.utc)
     schedule_doc["created_by"] = current_user["_id"]
     schedule_doc["team_slots"] = {
@@ -404,13 +408,15 @@ async def create_schedules_batch(batch: ScheduleBatchCreate, current_user: dict 
         
         schedule_doc = {
             "id": str(uuid.uuid4()),
+            "share_token": str(uuid.uuid4()),
             "name": f"{batch.name_prefix} - {date_obj.strftime('%d/%m/%Y')}",
             "date": date_obj.isoformat(),
             "time": batch.time,
             "event_type": batch.event_type,
+            "ministry": batch.ministry,
             "has_choir": batch.has_choir,
             "has_orchestra": batch.has_orchestra,
-            "status": "Disponibilidade",
+            "status": "Rascunho",
             "created_at": datetime.now(timezone.utc),
             "created_by": current_user["_id"],
             "team_slots": {
@@ -509,7 +515,36 @@ async def get_volunteer_monthly_count(volunteer_id: str, year_month: str, curren
 @api_router.get("/schedules")
 async def get_schedules(current_user: dict = Depends(get_current_user)):
     schedules = await db.schedules.find({}, {"_id": 0}).to_list(1000)
+    # Backfill share_token para escalas antigas
+    for s in schedules:
+        if not s.get("share_token"):
+            token = str(uuid.uuid4())
+            await db.schedules.update_one({"id": s["id"]}, {"$set": {"share_token": token}})
+            s["share_token"] = token
+        if not s.get("ministry"):
+            await db.schedules.update_one({"id": s["id"]}, {"$set": {"ministry": "Red Music"}})
+            s["ministry"] = "Red Music"
     return schedules
+
+@api_router.get("/public/schedules/{share_token}")
+async def get_public_schedule(share_token: str):
+    schedule = await db.schedules.find_one({"share_token": share_token}, {"_id": 0})
+    if not schedule:
+        raise HTTPException(status_code=404, detail="Escala não encontrada ou link inválido")
+    
+    members = await db.schedule_members.find({"schedule_id": schedule["id"]}, {"_id": 0}).to_list(1000)
+    schedule["members"] = members
+    
+    setlist = await db.setlists.find_one({"schedule_id": schedule["id"]}, {"_id": 0})
+    schedule["setlist"] = setlist.get("songs", []) if setlist else []
+    
+    # Enriquecer setlist com dados completos das músicas
+    for entry in schedule["setlist"]:
+        song = await db.songs.find_one({"id": entry.get("song_id")}, {"_id": 0})
+        if song:
+            entry["song_full"] = song
+    
+    return schedule
 
 @api_router.get("/schedules/{schedule_id}")
 async def get_schedule(schedule_id: str, current_user: dict = Depends(get_current_user)):

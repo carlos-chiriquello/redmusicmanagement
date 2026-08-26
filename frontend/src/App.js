@@ -12,6 +12,7 @@ import { SchedulesPage } from '@/pages/SchedulesPage';
 import { ScheduleDetailPage } from '@/pages/ScheduleDetailPage';
 import { SongsPage } from '@/pages/SongsPage';
 import { ChatPage } from '@/pages/ChatPage';
+import { PublicSchedulePage } from '@/pages/PublicSchedulePage';
 import { Toaster } from 'sonner';
 
 function App() {
@@ -21,6 +22,7 @@ function App() {
         <Routes>
           <Route path="/login" element={<LoginPage />} />
           <Route path="/register" element={<RegisterPage />} />
+          <Route path="/public/schedule/:token" element={<PublicSchedulePage />} />
           
           <Route path="/" element={<ProtectedRoute><Layout /></ProtectedRoute>}>
             <Route index element={<Navigate to="/dashboard" replace />} />
