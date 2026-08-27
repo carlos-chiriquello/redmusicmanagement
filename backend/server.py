@@ -202,24 +202,108 @@ async def register(request: RegisterRequest, response: Response):
     if existing:
         raise HTTPException(status_code=400, detail="Email already registered")
     
+    # SEGURANÇA: Bloqueia autocadastro como Administrador via endpoint público
+    safe_role = request.role if request.role in ("Voluntário", "Líder") else "Voluntário"
+    
     hashed = hash_password(request.password)
     user_doc = {
         "email": email_lower,
         "password_hash": hashed,
         "name": request.name,
-        "role": request.role,
+        "role": safe_role,
         "created_at": datetime.now(timezone.utc)
     }
     result = await db.users.insert_one(user_doc)
     user_id = str(result.inserted_id)
     
-    access_token = create_access_token(user_id, email_lower, request.role)
+    access_token = create_access_token(user_id, email_lower, safe_role)
     refresh_token = create_refresh_token(user_id)
     
     response.set_cookie(key="access_token", value=access_token, httponly=True, secure=False, samesite="lax", max_age=900, path="/")
     response.set_cookie(key="refresh_token", value=refresh_token, httponly=True, secure=False, samesite="lax", max_age=604800, path="/")
     
-    return {"id": user_id, "email": email_lower, "name": request.name, "role": request.role}
+    return {"id": user_id, "email": email_lower, "name": request.name, "role": safe_role}
+
+class PublicVolunteerRegister(BaseModel):
+    name: str
+    birth_date: str
+    email: EmailStr
+    phone: str
+    photo_url: Optional[str] = ""
+    instruments: List[str] = []
+    password: str
+
+@api_router.post("/public/volunteers/register")
+async def public_volunteer_register(data: PublicVolunteerRegister):
+    email_lower = data.email.lower()
+    existing_user = await db.users.find_one({"email": email_lower})
+    if existing_user:
+        raise HTTPException(status_code=400, detail="E-mail já cadastrado")
+    
+    from dateutil import parser
+    birth_date_obj = parser.parse(data.birth_date)
+    if birth_date_obj.tzinfo is None:
+        birth_date_obj = birth_date_obj.replace(tzinfo=timezone.utc)
+    age = (datetime.now(timezone.utc) - birth_date_obj).days // 365
+    
+    # Cria voluntário
+    vol_doc = {
+        "id": str(uuid.uuid4()),
+        "name": data.name,
+        "birth_date": data.birth_date,
+        "email": email_lower,
+        "phone": data.phone,
+        "photo_url": data.photo_url or "",
+        "instruments": data.instruments,
+        "functions": [],
+        "phase": "Em Teste",
+        "status": "Ativo",
+        "tags": [],
+        "age": age,
+        "unavailability_dates": [],
+        "created_at": datetime.now(timezone.utc)
+    }
+    await db.volunteers.insert_one(vol_doc)
+    
+    # Cria user vinculado com role Voluntário (nunca admin)
+    hashed = hash_password(data.password)
+    await db.users.insert_one({
+        "email": email_lower,
+        "password_hash": hashed,
+        "name": data.name,
+        "role": "Voluntário",
+        "created_at": datetime.now(timezone.utc)
+    })
+    
+    return {"message": "Cadastro realizado com sucesso! Aguarde aprovação da liderança.", "volunteer_id": vol_doc["id"]}
+
+@api_router.get("/public/monthly/{ministry}/{year_month}")
+async def get_public_monthly(ministry: str, year_month: str):
+    """Retorna todas as escalas de um ministério em um mês para visualização pública."""
+    schedules = await db.schedules.find({
+        "ministry": ministry,
+        "date": {"$regex": f"^{year_month}"}
+    }, {"_id": 0}).to_list(1000)
+    
+    if not schedules:
+        return {"ministry": ministry, "year_month": year_month, "schedules": []}
+    
+    schedules.sort(key=lambda s: s.get("date", ""))
+    
+    for schedule in schedules:
+        members = await db.schedule_members.find({"schedule_id": schedule["id"]}, {"_id": 0}).to_list(1000)
+        schedule["members"] = members
+        
+        setlist = await db.setlists.find_one({"schedule_id": schedule["id"]}, {"_id": 0})
+        schedule["setlist"] = setlist.get("songs", []) if setlist else []
+        
+        # Enriquecer setlist
+        for entry in schedule["setlist"]:
+            song = await db.songs.find_one({"id": entry.get("song_id")}, {"_id": 0})
+            if song:
+                entry["song_full"] = song
+    
+    return {"ministry": ministry, "year_month": year_month, "schedules": schedules}
 
 @api_router.post("/auth/login")
 async def login(request: LoginRequest, response: Response):
