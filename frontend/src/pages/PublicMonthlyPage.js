@@ -66,7 +66,7 @@ export const PublicMonthlyPage = () => {
       <main className="max-w-7xl mx-auto p-6 space-y-6">
         <div>
           <h1 className="text-3xl font-bold text-[#111111]">Escala Mensal — {ministry}</h1>
-          <p className="text-[#6b7280]">{monthLabel} — {schedules.length} programação{schedules.length !== 1 ? 'ões' : ''}</p>
+          <p className="text-[#6b7280]">{monthLabel} — {schedules.length} {schedules.length === 1 ? 'programação' : 'programações'}</p>
         </div>
 
         {schedules.length === 0 ? (

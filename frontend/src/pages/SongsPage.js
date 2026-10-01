@@ -9,6 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Card, CardContent } from '@/components/ui/card';
 import { Plus, Search, Music, ExternalLink, Edit, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
+import { useAuth } from '@/contexts/AuthContext';
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 
@@ -34,6 +35,8 @@ const emptyForm = {
 };
 
 export const SongsPage = () => {
+  const { user } = useAuth();
+  const isAdmin = user?.role !== 'Voluntário';
   const [songs, setSongs] = useState([]);
   const [search, setSearch] = useState('');
   const [loading, setLoading] = useState(true);
@@ -125,6 +128,7 @@ export const SongsPage = () => {
           <h1 className="text-3xl font-bold text-[#111111] tracking-tight">Repertório</h1>
           <p className="text-base text-[#6b7280]">Banco de músicas do ministério</p>
         </div>
+        {isAdmin && (
         <Dialog open={dialogOpen} onOpenChange={(open) => { setDialogOpen(open); if (!open) resetForm(); }}>
           <DialogTrigger asChild>
             <Button data-testid="add-song-button" className="bg-[#c72137] hover:bg-[#cf3f57]">
@@ -255,6 +259,7 @@ export const SongsPage = () => {
             </form>
           </DialogContent>
         </Dialog>
+        )}
       </div>
 
       <Card className="border-[#e28b95]/20">
@@ -296,6 +301,7 @@ export const SongsPage = () => {
                         <p className="text-sm text-[#6b7280] truncate">{song.artist}</p>
                       )}
                     </div>
+                    {isAdmin && (
                     <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                       <Button
                         variant="ghost"
@@ -316,6 +322,7 @@ export const SongsPage = () => {
                         <Trash2 className="w-4 h-4" />
                       </Button>
                     </div>
+                    )}
                   </div>
                   
                   <div className="flex flex-wrap gap-2 mb-3">

@@ -13,6 +13,7 @@ import { ArrowLeft, Plus, Trash2, Music, Users, CheckCircle, AlertCircle, Clock,
 import { toast } from 'sonner';
 import { DragDropContext, Droppable, Draggable } from 'react-beautiful-dnd';
 import jsPDF from 'jspdf';
+import { useAuth } from '@/contexts/AuthContext';
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 
@@ -37,6 +38,8 @@ const SLOT_LIMITS = {
 
 export const ScheduleDetailPage = () => {
   const { id } = useParams();
+  const { user } = useAuth();
+  const isAdmin = user?.role !== 'Voluntário';
   const navigate = useNavigate();
   const [schedule, setSchedule] = useState(null);
   const [volunteers, setVolunteers] = useState([]);
@@ -371,7 +374,7 @@ export const ScheduleDetailPage = () => {
           </div>
         </div>
         <div className="flex gap-2 flex-wrap">
-          {currentStatus !== 'Validado' && (
+          {isAdmin && currentStatus !== 'Validado' && (
             <Button
               variant="outline"
               onClick={() => updateScheduleStatus('Validado')}
@@ -382,6 +385,8 @@ export const ScheduleDetailPage = () => {
               Marcar como Validado
             </Button>
           )}
+          {isAdmin && (
+          <>
           <Button
             variant="outline"
             onClick={copyShareLink}
@@ -419,6 +424,8 @@ export const ScheduleDetailPage = () => {
               </div>
             </DialogContent>
           </Dialog>
+          </>
+          )}
           <Button onClick={exportPDF} className="bg-[#c72137] hover:bg-[#cf3f57]" data-testid="export-pdf-button">
             <Download className="w-4 h-4 mr-2" />
             Exportar PDF
@@ -467,6 +474,7 @@ export const ScheduleDetailPage = () => {
         <TabsContent value="members" className="space-y-4 mt-6">
           <div className="flex justify-between items-center">
             <h2 className="text-xl font-semibold text-[#111111]">Membros da Equipe</h2>
+            {isAdmin && (
             <Dialog open={memberDialogOpen} onOpenChange={setMemberDialogOpen}>
               <DialogTrigger asChild>
                 <Button className="bg-[#c72137] hover:bg-[#cf3f57]" data-testid="add-member-button">
@@ -566,6 +574,7 @@ export const ScheduleDetailPage = () => {
                 </div>
               </DialogContent>
             </Dialog>
+            )}
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -585,6 +594,7 @@ export const ScheduleDetailPage = () => {
                           <p className="text-sm text-[#6b7280]">{member.function}</p>
                         </div>
                       </div>
+                      {isAdmin && (
                       <Button
                         variant="ghost"
                         size="sm"
@@ -594,11 +604,13 @@ export const ScheduleDetailPage = () => {
                       >
                         <Trash2 className="w-4 h-4" />
                       </Button>
+                      )}
                     </div>
                     <div className="space-y-2">
                       <Select
                         value={member.confirmation_status}
                         onValueChange={(v) => updateMemberStatus(member.id, v)}
+                        disabled={!isAdmin}
                       >
                         <SelectTrigger data-testid={`status-select-${member.id}`}>
                           <SelectValue />
@@ -640,6 +652,7 @@ export const ScheduleDetailPage = () => {
         <TabsContent value="setlist" className="space-y-4 mt-6">
           <div className="flex justify-between items-center">
             <h2 className="text-xl font-semibold text-[#111111]">Lista de Músicas</h2>
+            {isAdmin && (
             <Dialog open={songDialogOpen} onOpenChange={setSongDialogOpen}>
               <DialogTrigger asChild>
                 <Button className="bg-[#c72137] hover:bg-[#cf3f57]" data-testid="add-song-button">
@@ -725,6 +738,7 @@ export const ScheduleDetailPage = () => {
                 </div>
               </DialogContent>
             </Dialog>
+            )}
           </div>
 
           <div className="bg-white rounded-xl border border-[#e28b95]/20 p-6">
@@ -738,7 +752,7 @@ export const ScheduleDetailPage = () => {
                       {schedule?.setlist?.map((song, index) => {
                         const vocalName = vocals.find(v => v.volunteer_id === song.main_vocal_volunteer_id)?.volunteer_name || 'Não definido';
                         return (
-                          <Draggable key={song.id} draggableId={song.id} index={index}>
+                          <Draggable key={song.id} draggableId={song.id} index={index} isDragDisabled={!isAdmin}>
                             {(provided, snapshot) => (
                               <div
                                 ref={provided.innerRef}
@@ -804,6 +818,7 @@ export const ScheduleDetailPage = () => {
                                     })()}
                                   </div>
                                 </div>
+                                {isAdmin && (
                                 <Button
                                   variant="ghost"
                                   size="sm"
@@ -813,6 +828,7 @@ export const ScheduleDetailPage = () => {
                                 >
                                   <Trash2 className="w-4 h-4" />
                                 </Button>
+                                )}
                               </div>
                             )}
                           </Draggable>

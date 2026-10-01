@@ -74,6 +74,11 @@ async def get_current_user(request: Request) -> dict:
     except jwt.InvalidTokenError:
         raise HTTPException(status_code=401, detail="Invalid token")
 
+async def require_admin(current_user: dict = Depends(get_current_user)) -> dict:
+    if current_user.get("role") == "Voluntário":
+        raise HTTPException(status_code=403, detail="Acesso restrito à liderança")
+    return current_user
+
 class RegisterRequest(BaseModel):
     email: EmailStr
     password: str
@@ -335,7 +340,7 @@ async def get_me(current_user: dict = Depends(get_current_user)):
     return current_user
 
 @api_router.post("/volunteers")
-async def create_volunteer(volunteer: VolunteerCreate, current_user: dict = Depends(get_current_user)):
+async def create_volunteer(volunteer: VolunteerCreate, current_user: dict = Depends(require_admin)):
     from dateutil import parser
     birth_date_obj = parser.parse(volunteer.birth_date)
     if birth_date_obj.tzinfo is None:
@@ -374,7 +379,7 @@ async def get_volunteer(volunteer_id: str, current_user: dict = Depends(get_curr
     return volunteer
 
 @api_router.put("/volunteers/{volunteer_id}")
-async def update_volunteer(volunteer_id: str, updates: VolunteerUpdate, current_user: dict = Depends(get_current_user)):
+async def update_volunteer(volunteer_id: str, updates: VolunteerUpdate, current_user: dict = Depends(require_admin)):
     update_data = {k: v for k, v in updates.model_dump().items() if v is not None}
     
     if "birth_date" in update_data:
@@ -392,14 +397,14 @@ async def update_volunteer(volunteer_id: str, updates: VolunteerUpdate, current_
     return updated
 
 @api_router.delete("/volunteers/{volunteer_id}")
-async def delete_volunteer(volunteer_id: str, current_user: dict = Depends(get_current_user)):
+async def delete_volunteer(volunteer_id: str, current_user: dict = Depends(require_admin)):
     result = await db.volunteers.delete_one({"id": volunteer_id})
     if result.deleted_count == 0:
         raise HTTPException(status_code=404, detail="Volunteer not found")
     return {"message": "Volunteer deleted successfully"}
 
 @api_router.post("/volunteers/{volunteer_id}/unavailability")
-async def add_unavailability(volunteer_id: str, unavail: UnavailabilityDate, current_user: dict = Depends(get_current_user)):
+async def add_unavailability(volunteer_id: str, unavail: UnavailabilityDate, current_user: dict = Depends(require_admin)):
     await db.volunteers.update_one(
         {"id": volunteer_id},
         {"$push": {"unavailability_dates": unavail.model_dump()}}
@@ -407,7 +412,7 @@ async def add_unavailability(volunteer_id: str, unavail: UnavailabilityDate, cur
     return {"message": "Unavailability added"}
 
 @api_router.delete("/volunteers/{volunteer_id}/unavailability/{date}")
-async def remove_unavailability(volunteer_id: str, date: str, current_user: dict = Depends(get_current_user)):
+async def remove_unavailability(volunteer_id: str, date: str, current_user: dict = Depends(require_admin)):
     await db.volunteers.update_one(
         {"id": volunteer_id},
         {"$pull": {"unavailability_dates": {"date": date}}}
@@ -415,7 +420,7 @@ async def remove_unavailability(volunteer_id: str, date: str, current_user: dict
     return {"message": "Unavailability removed"}
 
 @api_router.post("/songs")
-async def create_song(song: SongCreate, current_user: dict = Depends(get_current_user)):
+async def create_song(song: SongCreate, current_user: dict = Depends(require_admin)):
     song_doc = song.model_dump()
     song_doc["id"] = str(uuid.uuid4())
     song_doc["last_played_date"] = None
@@ -439,7 +444,7 @@ async def get_song(song_id: str, current_user: dict = Depends(get_current_user))
     return song
 
 @api_router.put("/songs/{song_id}")
-async def update_song(song_id: str, updates: SongUpdate, current_user: dict = Depends(get_current_user)):
+async def update_song(song_id: str, updates: SongUpdate, current_user: dict = Depends(require_admin)):
     update_data = {k: v for k, v in updates.model_dump().items() if v is not None}
     if update_data:
         await db.songs.update_one({"id": song_id}, {"$set": update_data})
@@ -447,14 +452,14 @@ async def update_song(song_id: str, updates: SongUpdate, current_user: dict = De
     return updated
 
 @api_router.delete("/songs/{song_id}")
-async def delete_song(song_id: str, current_user: dict = Depends(get_current_user)):
+async def delete_song(song_id: str, current_user: dict = Depends(require_admin)):
     result = await db.songs.delete_one({"id": song_id})
     if result.deleted_count == 0:
         raise HTTPException(status_code=404, detail="Song not found")
     return {"message": "Song deleted successfully"}
 
 @api_router.post("/schedules")
-async def create_schedule(schedule: ScheduleCreate, current_user: dict = Depends(get_current_user)):
+async def create_schedule(schedule: ScheduleCreate, current_user: dict = Depends(require_admin)):
     schedule_doc = schedule.model_dump()
     schedule_doc["id"] = str(uuid.uuid4())
     schedule_doc["share_token"] = str(uuid.uuid4())
@@ -470,7 +475,7 @@ async def create_schedule(schedule: ScheduleCreate, current_user: dict = Depends
     return schedule_doc
 
 @api_router.post("/schedules/batch")
-async def create_schedules_batch(batch: ScheduleBatchCreate, current_user: dict = Depends(get_current_user)):
+async def create_schedules_batch(batch: ScheduleBatchCreate, current_user: dict = Depends(require_admin)):
     from dateutil import parser as dateparser
     today = datetime.now(timezone.utc).date()
     created = []
@@ -645,7 +650,7 @@ async def get_schedule(schedule_id: str, current_user: dict = Depends(get_curren
     return schedule
 
 @api_router.put("/schedules/{schedule_id}")
-async def update_schedule(schedule_id: str, updates: ScheduleUpdate, current_user: dict = Depends(get_current_user)):
+async def update_schedule(schedule_id: str, updates: ScheduleUpdate, current_user: dict = Depends(require_admin)):
     update_data = {k: v for k, v in updates.model_dump().items() if v is not None}
     if update_data:
         await db.schedules.update_one({"id": schedule_id}, {"$set": update_data})
@@ -653,14 +658,14 @@ async def update_schedule(schedule_id: str, updates: ScheduleUpdate, current_use
     return updated
 
 @api_router.delete("/schedules/{schedule_id}")
-async def delete_schedule(schedule_id: str, current_user: dict = Depends(get_current_user)):
+async def delete_schedule(schedule_id: str, current_user: dict = Depends(require_admin)):
     await db.schedules.delete_one({"id": schedule_id})
     await db.schedule_members.delete_many({"schedule_id": schedule_id})
     await db.setlists.delete_one({"schedule_id": schedule_id})
     return {"message": "Schedule deleted successfully"}
 
 @api_router.post("/schedules/{schedule_id}/members")
-async def add_schedule_member(schedule_id: str, member: ScheduleMemberAdd, current_user: dict = Depends(get_current_user)):
+async def add_schedule_member(schedule_id: str, member: ScheduleMemberAdd, current_user: dict = Depends(require_admin)):
     volunteer = await db.volunteers.find_one({"id": member.volunteer_id}, {"_id": 0})
     if not volunteer:
         raise HTTPException(status_code=404, detail="Volunteer not found")
@@ -734,7 +739,7 @@ async def add_schedule_member(schedule_id: str, member: ScheduleMemberAdd, curre
     return member_doc
 
 @api_router.put("/schedules/{schedule_id}/members/{member_id}")
-async def update_schedule_member(schedule_id: str, member_id: str, updates: ScheduleMemberUpdate, current_user: dict = Depends(get_current_user)):
+async def update_schedule_member(schedule_id: str, member_id: str, updates: ScheduleMemberUpdate, current_user: dict = Depends(require_admin)):
     await db.schedule_members.update_one(
         {"id": member_id, "schedule_id": schedule_id},
         {"$set": {"confirmation_status": updates.confirmation_status}}
@@ -743,14 +748,14 @@ async def update_schedule_member(schedule_id: str, member_id: str, updates: Sche
     return updated
 
 @api_router.delete("/schedules/{schedule_id}/members/{member_id}")
-async def delete_schedule_member(schedule_id: str, member_id: str, current_user: dict = Depends(get_current_user)):
+async def delete_schedule_member(schedule_id: str, member_id: str, current_user: dict = Depends(require_admin)):
     result = await db.schedule_members.delete_one({"id": member_id, "schedule_id": schedule_id})
     if result.deleted_count == 0:
         raise HTTPException(status_code=404, detail="Member not found")
     return {"message": "Member removed from schedule"}
 
 @api_router.post("/setlists/{schedule_id}/songs")
-async def add_setlist_song(schedule_id: str, song_data: SetlistSongAdd, current_user: dict = Depends(get_current_user)):
+async def add_setlist_song(schedule_id: str, song_data: SetlistSongAdd, current_user: dict = Depends(require_admin)):
     song = await db.songs.find_one({"id": song_data.song_id}, {"_id": 0})
     if not song:
         raise HTTPException(status_code=404, detail="Song not found")
@@ -798,7 +803,7 @@ async def get_setlist(schedule_id: str, current_user: dict = Depends(get_current
     return setlist
 
 @api_router.delete("/setlists/{schedule_id}/songs/{song_entry_id}")
-async def remove_setlist_song(schedule_id: str, song_entry_id: str, current_user: dict = Depends(get_current_user)):
+async def remove_setlist_song(schedule_id: str, song_entry_id: str, current_user: dict = Depends(require_admin)):
     await db.setlists.update_one(
         {"schedule_id": schedule_id},
         {"$pull": {"songs": {"id": song_entry_id}}}
@@ -809,7 +814,7 @@ class SetlistReorder(BaseModel):
     songs: List[dict]
 
 @api_router.put("/setlists/{schedule_id}/reorder")
-async def reorder_setlist(schedule_id: str, data: SetlistReorder, current_user: dict = Depends(get_current_user)):
+async def reorder_setlist(schedule_id: str, data: SetlistReorder, current_user: dict = Depends(require_admin)):
     await db.setlists.update_one(
         {"schedule_id": schedule_id},
         {"$set": {"songs": data.songs}}
@@ -850,7 +855,7 @@ async def get_volunteer_participation(volunteer_id: str, current_user: dict = De
     return participation
 
 @api_router.get("/dashboard/metrics")
-async def get_dashboard_metrics(current_user: dict = Depends(get_current_user)):
+async def get_dashboard_metrics(current_user: dict = Depends(require_admin)):
     now = datetime.now(timezone.utc)
     month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
     
@@ -875,12 +880,12 @@ async def get_dashboard_metrics(current_user: dict = Depends(get_current_user)):
     }
 
 @api_router.get("/dashboard/top-songs")
-async def get_top_songs(current_user: dict = Depends(get_current_user)):
+async def get_top_songs(current_user: dict = Depends(require_admin)):
     songs = await db.songs.find({}, {"_id": 0}).sort("play_count", -1).limit(10).to_list(10)
     return songs
 
 @api_router.get("/dashboard/burnout-alert")
-async def get_burnout_alert(current_user: dict = Depends(get_current_user)):
+async def get_burnout_alert(current_user: dict = Depends(require_admin)):
     all_schedules = await db.schedules.find({}, {"_id": 0}).sort("date", -1).to_list(1000)
     
     volunteer_participation = {}
@@ -900,7 +905,7 @@ async def get_burnout_alert(current_user: dict = Depends(get_current_user)):
     return burnout_list
 
 @api_router.post("/notifications/send")
-async def send_notification(notif: NotificationRequest, current_user: dict = Depends(get_current_user)):
+async def send_notification(notif: NotificationRequest, current_user: dict = Depends(require_admin)):
     result = {"email_sent": False, "sms_sent": False}
     
     if notif.channel in ["email", "both"] and notif.recipient_email:
@@ -959,7 +964,7 @@ async def get_chat_messages(other_user_id: str, current_user: dict = Depends(get
     return messages
 
 @api_router.post("/volunteers/{volunteer_id}/upload-photo")
-async def upload_volunteer_photo(volunteer_id: str, file: UploadFile = File(...), current_user: dict = Depends(get_current_user)):
+async def upload_volunteer_photo(volunteer_id: str, file: UploadFile = File(...), current_user: dict = Depends(require_admin)):
     contents = await file.read()
     base64_image = base64.b64encode(contents).decode('utf-8')
     photo_url = f"data:{file.content_type};base64,{base64_image}"

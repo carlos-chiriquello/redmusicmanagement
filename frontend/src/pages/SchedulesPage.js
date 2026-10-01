@@ -10,9 +10,10 @@ import { Switch } from '@/components/ui/switch';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
-import { Plus, Calendar as CalendarIcon, Clock, ChevronRight, Users2, Music2, CalendarPlus, LayoutGrid, List } from 'lucide-react';
+import { Plus, Calendar as CalendarIcon, Clock, ChevronRight, Users2, Music2, CalendarPlus, LayoutGrid, List, Share2, Copy } from 'lucide-react';
 import { toast } from 'sonner';
 import { MonthlyGridView } from './MonthlyGridView';
+import { useAuth } from '@/contexts/AuthContext';
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 
@@ -34,16 +35,24 @@ const STATUS_COLORS = {
 };
 
 export const SchedulesPage = () => {
+  const { user } = useAuth();
+  const isAdmin = user?.role !== 'Voluntário';
   const [schedules, setSchedules] = useState([]);
   const [loading, setLoading] = useState(true);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [batchDialogOpen, setBatchDialogOpen] = useState(false);
+  const [shareDialogOpen, setShareDialogOpen] = useState(false);
+  const [shareMinistry, setShareMinistry] = useState('Red Music');
   const [viewMode, setViewMode] = useState('list');
   const [selectedMonth, setSelectedMonth] = useState(() => {
     const now = new Date();
     return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
   });
   const [formData, setFormData] = useState(emptyForm);
+  const [shareMonth, setShareMonth] = useState(() => {
+    const now = new Date();
+    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+  });
   const [batchData, setBatchData] = useState({
     year: new Date().getFullYear(), month: new Date().getMonth() + 1,
     selectedDates: [], time: '19:00', event_type: 'Domingo',
@@ -57,6 +66,14 @@ export const SchedulesPage = () => {
       const { data } = await axios.get(`${API}/schedules`, { withCredentials: true });
       setSchedules(data);
     } catch (error) { toast.error('Erro ao carregar escalas'); } finally { setLoading(false); }
+  };
+
+  const monthlyShareUrl = `${window.location.origin}/public/mes/${encodeURIComponent(shareMinistry)}/${shareMonth}`;
+
+  const copyMonthlyShareLink = () => {
+    navigator.clipboard.writeText(monthlyShareUrl)
+      .then(() => toast.success('Link da escala mensal copiado!'))
+      .catch(() => toast.error('Não foi possível copiar. Link: ' + monthlyShareUrl));
   };
 
   const handleSubmit = async (e) => {
@@ -129,6 +146,16 @@ export const SchedulesPage = () => {
 
   const availableMonths = useMemo(() => schedulesByMonth.map(g => ({ key: g.key, label: g.label })), [schedulesByMonth]);
 
+  const shareMonthOptions = useMemo(() => {
+    const out = [];
+    const now = new Date();
+    for (let i = -6; i < 18; i++) {
+      const d = new Date(now.getFullYear(), now.getMonth() + i, 1);
+      out.push({ key: `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`, label: `${monthNames[d.getMonth()]} ${d.getFullYear()}` });
+    }
+    return out;
+  }, []);
+
   return (
     <div className="space-y-6" data-testid="schedules-page">
       <div className="flex items-center justify-between flex-wrap gap-3">
@@ -145,6 +172,50 @@ export const SchedulesPage = () => {
               <LayoutGrid className="w-4 h-4" /> Grade Mensal
             </button>
           </div>
+          {isAdmin && (
+          <>
+          <Dialog open={shareDialogOpen} onOpenChange={setShareDialogOpen}>
+            <DialogTrigger asChild>
+              <Button variant="outline" className="border-[#c72137] text-[#c72137] hover:bg-[#f7e1e1]" data-testid="share-month-button">
+                <Share2 className="w-4 h-4 mr-2" />Compartilhar Mês
+              </Button>
+            </DialogTrigger>
+            <DialogContent className="max-w-lg">
+              <DialogHeader><DialogTitle>Compartilhar Escala do Mês</DialogTitle></DialogHeader>
+              <div className="space-y-4">
+                <p className="text-sm text-[#6b7280]">Gere um link público (somente leitura) com a grade mensal e os setlists de cada programação.</p>
+                <div>
+                  <Label>Ministério *</Label>
+                  <Select value={shareMinistry} onValueChange={setShareMinistry}>
+                    <SelectTrigger data-testid="share-ministry-select"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      {MINISTRIES.map(m => <SelectItem key={m} value={m}>{m}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div>
+                  <Label>Mês *</Label>
+                  <Select value={shareMonth} onValueChange={setShareMonth}>
+                    <SelectTrigger data-testid="share-month-select"><SelectValue /></SelectTrigger>
+                    <SelectContent className="max-h-64">
+                      {shareMonthOptions.map(m => <SelectItem key={m.key} value={m.key}>{m.label}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="p-3 bg-[#fcf7f6] border border-[#e28b95]/30 rounded-lg">
+                  <p className="text-xs text-[#6b7280] break-all" data-testid="share-month-url">{monthlyShareUrl}</p>
+                </div>
+                <div className="flex gap-2">
+                  <Button onClick={copyMonthlyShareLink} className="flex-1 bg-[#c72137] hover:bg-[#cf3f57]" data-testid="copy-month-link-button">
+                    <Copy className="w-4 h-4 mr-2" />Copiar Link
+                  </Button>
+                  <Button variant="outline" onClick={() => window.open(monthlyShareUrl, '_blank')} className="border-[#c72137] text-[#c72137] hover:bg-[#f7e1e1]" data-testid="open-month-link-button">
+                    Abrir
+                  </Button>
+                </div>
+              </div>
+            </DialogContent>
+          </Dialog>
           <Dialog open={batchDialogOpen} onOpenChange={setBatchDialogOpen}>
             <DialogTrigger asChild>
               <Button variant="outline" className="border-[#c72137] text-[#c72137] hover:bg-[#f7e1e1]" data-testid="batch-schedules-button">
@@ -261,6 +332,8 @@ export const SchedulesPage = () => {
               </form>
             </DialogContent>
           </Dialog>
+          </>
+          )}
         </div>
       </div>
 

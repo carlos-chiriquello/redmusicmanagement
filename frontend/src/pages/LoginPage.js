@@ -104,7 +104,7 @@ export const LoginPage = () => {
       <div
         className="hidden lg:block lg:w-1/2 bg-cover bg-center"
         style={{
-          backgroundImage: 'url(https://scontent.frao7-1.fna.fbcdn.net/v/t39.30808-6/545794227_1218732790295220_1932545517385383888_n.jpg?stp=dst-jpg_tt6&cstp=mx2048x1365&ctp=s2048x1365&_nc_cat=109&ccb=1-7&_nc_sid=f727a1&_nc_ohc=WDDp33irn3QQ7kNvwE5Ucc9&_nc_oc=AdpwotwBWNTwQvCr9AG9ybZwMDo0z74xEregJh0Z0SroxyVLUgoeQ8BpiIyS3XVe6WY&_nc_zt=23&_nc_ht=scontent.frao7-1.fna&_nc_gid=LosNi3QPJClNYo_FB7X9LA&_nc_ss=7b2a8&oh=00_AQHZOyxL4NI3n4ywyRSiKdLc0NpWkSz8oox3banyuGNFEA&oe=6A714BD2)',
+          backgroundImage: '/app/frontend/public/brand/RedMusic_Foto.png',
           backgroundSize: 'cover',
           backgroundPosition: 'center'
         }}

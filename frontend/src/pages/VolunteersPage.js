@@ -8,7 +8,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Card, CardContent } from '@/components/ui/card';
 import { Checkbox } from '@/components/ui/checkbox';
-import { Plus, Search, ChevronRight, Filter, X } from 'lucide-react';
+import { Plus, Search, ChevronRight, Filter, X, Link2 } from 'lucide-react';
 import { toast } from 'sonner';
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
@@ -115,6 +115,21 @@ export const VolunteersPage = () => {
           <h1 className="text-3xl font-bold text-[#111111] tracking-tight">Voluntários</h1>
           <p className="text-base text-[#6b7280]">Gerencie os membros do ministério</p>
         </div>
+        <div className="flex items-center gap-2 flex-wrap">
+        <Button
+          variant="outline"
+          onClick={() => {
+            const url = `${window.location.origin}/cadastro-voluntario`;
+            navigator.clipboard.writeText(url)
+              .then(() => toast.success('Link de cadastro copiado! Envie para o novo voluntário.'))
+              .catch(() => toast.error('Não foi possível copiar. Link: ' + url));
+          }}
+          className="border-[#c72137] text-[#c72137] hover:bg-[#f7e1e1]"
+          data-testid="copy-register-link-button"
+        >
+          <Link2 className="w-4 h-4 mr-2" />
+          Copiar Link de Cadastro
+        </Button>
         <Dialog open={dialogOpen} onOpenChange={(open) => { setDialogOpen(open); if (!open) resetForm(); }}>
           <DialogTrigger asChild>
             <Button data-testid="add-volunteer-button" className="bg-[#c72137] hover:bg-[#cf3f57]">
@@ -219,6 +234,7 @@ export const VolunteersPage = () => {
             </form>
           </DialogContent>
         </Dialog>
+        </div>
       </div>
 
       <Card className="border-[#e28b95]/20">

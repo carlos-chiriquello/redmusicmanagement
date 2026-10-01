@@ -11,13 +11,17 @@ export const Layout = () => {
   const navigate = useNavigate();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
-  const menuItems = [
-    { path: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
-    { path: '/volunteers', label: 'Voluntários', icon: Users },
+  const isVolunteer = user?.role === 'Voluntário';
+
+  const allMenuItems = [
+    { path: '/dashboard', label: 'Dashboard', icon: LayoutDashboard, adminOnly: true },
+    { path: '/volunteers', label: 'Voluntários', icon: Users, adminOnly: true },
     { path: '/schedules', label: 'Escalas', icon: Calendar },
     { path: '/songs', label: 'Repertório', icon: Music },
-    { path: '/chat', label: 'Mensagens', icon: MessageSquare },
+    { path: '/chat', label: 'Mensagens', icon: MessageSquare, adminOnly: true },
   ];
+
+  const menuItems = allMenuItems.filter(item => !(item.adminOnly && isVolunteer));
 
   const handleLogout = async () => {
     await logout();
