@@ -127,7 +127,7 @@ export const PublicMonthlyPage = () => {
                         <CollapsibleTrigger className="w-full">
                           <div className="flex items-center justify-between p-4 bg-white border border-[#e28b95]/20 rounded-lg hover:bg-[#fcf7f6] transition-colors">
                             <div className="flex items-center gap-3 text-left">
-                              <div className="w-10 h-10 rounded bg-[#c72137] text-white flex items-center justify-center font-bold text-sm">
+                              <div className="w-10 h-10 rounded bg-[#c72137] text-white flex items-center justify-center font-bold text-sm p-2">
                                 {dh.short}
                               </div>
                               <div>
